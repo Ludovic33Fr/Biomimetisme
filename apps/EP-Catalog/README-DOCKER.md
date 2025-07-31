@@ -132,4 +132,7 @@ docker tag ep-catalog:latest your-registry.com/ep-catalog:latest
 
 # Push vers le registre
 docker push your-registry.com/ep-catalog:latest
+
+# Run une instance 
+docker run -d --name EP-Catalog-Test -p 8080:8080 ep-catalog
 ``` 
