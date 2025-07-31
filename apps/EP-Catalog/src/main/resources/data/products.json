@@ -1,0 +1,82 @@
+[
+  {
+    "id": "1",
+    "name": "Chaussure Nike Air Max 2024",
+    "description": "Modèle Air Max 2024 avec technologie Air-Sole",
+    "price": 129.99,
+    "category": "Chaussures",
+    "brand": "Nike",
+    "color": "Blanc/Noir",
+    "size": "42"
+  },
+  {
+    "id": "2",
+    "name": "T-shirt Adidas Originals",
+    "description": "T-shirt en coton bio avec logo Adidas",
+    "price": 34.50,
+    "category": "Vêtements",
+    "brand": "Adidas",
+    "color": "Blanc",
+    "size": "L"
+  },
+  {
+    "id": "3",
+    "name": "Montre Casio G-Shock",
+    "description": "Montre numérique rétro résistante aux chocs",
+    "price": 49.99,
+    "category": "Accessoires",
+    "brand": "Casio",
+    "color": "Noir",
+    "size": "Standard"
+  },
+  {
+    "id": "4",
+    "name": "Sac à dos The North Face",
+    "description": "Sac à dos 30L imperméable pour randonnée",
+    "price": 89.99,
+    "category": "Bagages",
+    "brand": "The North Face",
+    "color": "Bleu marine",
+    "size": "30L"
+  },
+  {
+    "id": "5",
+    "name": "Casque Bose QuietComfort",
+    "description": "Casque audio avec réduction de bruit active",
+    "price": 299.99,
+    "category": "Électronique",
+    "brand": "Bose",
+    "color": "Noir",
+    "size": "Standard"
+  },
+  {
+    "id": "6",
+    "name": "Lunettes de soleil Ray-Ban",
+    "description": "Lunettes de soleil classiques Aviator",
+    "price": 159.99,
+    "category": "Accessoires",
+    "brand": "Ray-Ban",
+    "color": "Doré/Verre vert",
+    "size": "58mm"
+  },
+  {
+    "id": "7",
+    "name": "Pull en laine mérinos",
+    "description": "Pull 100% laine mérinos bio, chaud et respirant",
+    "price": 79.99,
+    "category": "Vêtements",
+    "brand": "Icebreaker",
+    "color": "Gris",
+    "size": "M"
+  },
+  {
+    "id": "8",
+    "name": "Bouteille d'eau réutilisable",
+    "description": "Bouteille en acier inoxydable 750ml",
+    "price": 24.99,
+    "category": "Accessoires",
+    "brand": "Hydro Flask",
+    "color": "Bleu",
+    "size": "750ml"
+  }
+] 
