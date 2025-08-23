@@ -37,6 +37,82 @@ Application Spring Boot REST API pour la gestion d'un catalogue de produits avec
 - `GET /api/products` - Liste tous les produits
 - `GET /api/products/{id}` - Récupère un produit par son ID
 
+## 🔐 Stéganographie (Classe Steg)
+
+Le projet inclut également une classe `Steg` pour la stéganographie, permettant de cacher des messages secrets dans des images.
+
+### Principe de fonctionnement
+
+La stéganographie consiste à cacher des informations dans les bits de poids faible des composantes RGB d'une image. Cette technique est invisible à l'œil nu car elle modifie seulement le bit le moins significatif de chaque canal de couleur.
+
+### Structure des données cachées
+
+```
+[Signature "STEG1" (5 bytes)] + [Longueur du message (4 bytes)] + [Message (N bytes)]
+```
+
+- **Signature** : "STEG1" pour identifier les images contenant des messages cachés
+- **Longueur** : Nombre de bytes du message (entier 32 bits)
+- **Message** : Contenu UTF-8 à cacher
+
+### Capacité de stockage
+
+- **Capacité** ≈ largeur × hauteur × 3 bits
+- **Exemple** : Image 1000×1000 pixels = 3 000 000 bits = 375 000 bytes
+
+### Utilisation
+
+#### Encoder un message
+
+```bash
+java Steg encode <image_entree.png> <image_sortie.png> <message...>
+```
+
+**Exemple :**
+```bash
+java Steg encode photo.png secret.png "Message secret à cacher"
+```
+
+#### Décoder un message
+
+```bash
+java Steg decode <image.png>
+```
+
+**Exemple :**
+```bash
+java Steg decode secret.png
+```
+
+### Algorithme d'encodage
+
+1. **Préparation** : Création du payload avec signature, longueur et message
+2. **Vérification** : Contrôle de la capacité de l'image
+3. **Insertion** : Remplacement du bit de poids faible de chaque composante RGB
+4. **Sauvegarde** : Écriture de l'image modifiée en PNG
+
+### Algorithme de décodage
+
+1. **Extraction** : Lecture des bits de poids faible de chaque composante RGB
+2. **Validation** : Vérification de la signature "STEG1"
+3. **Reconstruction** : Assemblage des bytes pour former le message
+4. **Retour** : Affichage du message extrait
+
+### Caractéristiques techniques
+
+- **Format d'image** : PNG recommandé (sans perte)
+- **Encodage** : UTF-8 pour le message
+- **Sécurité** : Modifications invisibles à l'œil nu
+- **Robustesse** : Signature pour identifier les images encodées
+- **Performance** : Traitement pixel par pixel en O(n²)
+
+### Cas d'usage
+
+- **Communication secrète** : Cacher des messages dans des images partagées
+- **Marquage numérique** : Identifier des images avec des métadonnées cachées
+- **Protection de propriété** : Filigrane invisible dans des images
+- **Recherche et développement** : Tests de sécurité et cryptographie
+
 ### Exemples d'utilisation
 
 ```bash
