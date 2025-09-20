@@ -1,0 +1,30 @@
+# Suggested high-level segmentation policy (default DENY)
+# Segments assignments:
+segment S3 contains web1
+segment S2 contains api1
+segment S3 contains web2
+segment S0 contains db1
+segment S2 contains cache1
+segment S2 contains batch1
+segment S0 contains admin1
+segment S1 contains jump1
+
+# Allowed flows between segments (Sx -> Sy):
+allow S0 -> S2
+allow S2 -> S0
+allow S2 -> S3
+allow S3 -> S2
+
+# Expanded allowed node pairs:
+ALLOW web1 -> api1  # S3->S2
+ALLOW web2 -> api1  # S3->S2
+ALLOW api1 -> db1  # S2->S0
+ALLOW api1 -> cache1  # S2->S2
+ALLOW batch1 -> api1  # S2->S2
+ALLOW admin1 -> api1  # S0->S2
+ALLOW admin1 -> db1  # S0->S0
+ALLOW api1 -> web1  # S2->S3
+ALLOW web1 -> cache1  # S3->S2
+ALLOW web2 -> cache1  # S3->S2
+ALLOW batch1 -> db1  # S2->S0
+ALLOW batch1 -> db1  # S2->S0 (malicious sample present)
