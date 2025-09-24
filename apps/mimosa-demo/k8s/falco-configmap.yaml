@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-config
+  namespace: mimosa-demo
+data:
+  falco.yaml: |
+    rules_file:
+      - /etc/falco/falco_rules.yaml
+      - /etc/falco/falco_rules.local.yaml
+      - /etc/falco/rules.d
+
+    program_output:
+      enabled: true
+      keep_alive: false
+      program: ["/usr/local/bin/mimosa_kill.sh"]
+
+  mimosa.rules: |
+    - rule: Webserver Spawns Shell
+      desc: A web server process launched a shell (possible RCE), reflex kill
+      condition: spawned_process and proc.name in (bash, sh, zsh, dash) and proc.pname in (python, python3, gunicorn, uvicorn, nginx, httpd, apache2)
+      output: "REFLEX: %proc.pname spawned %proc.name cmd=%proc.cmdline pid=%proc.pid"
+      priority: CRITICAL
+      tags: [execution, rce, reflex]
+
+  mimosa_kill.sh: |
+    #!/usr/bin/env sh
+    read EVENT || exit 0
+    PID=$(echo "$EVENT" | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2 || true)
+    if [ -n "$PID" ]; then
+      kill -9 "$PID" 2>/dev/null || true
+    fi
+    exit 0

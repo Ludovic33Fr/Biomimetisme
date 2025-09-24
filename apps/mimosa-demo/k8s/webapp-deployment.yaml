@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+  namespace: mimosa-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webapp
+  template:
+    metadata:
+      labels:
+        app: webapp
+    spec:
+      containers:
+        - name: webapp
+          image: python:3.11-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["sh","-lc","pip install --no-cache-dir flask && python /app/app.py"]
+          ports:
+            - containerPort: 5000
+          volumeMounts:
+            - name: app
+              mountPath: /app/app.py
+              subPath: app.py
+      volumes:
+        - name: app
+          configMap:
+            name: webapp-config

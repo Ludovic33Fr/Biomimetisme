@@ -1,0 +1,6 @@
+- rule: Webserver Spawns Shell
+  desc: A web server process launched a shell (possible RCE), reflex kill
+  condition: spawned_process and proc.name in (bash, sh, zsh, dash) and proc.pname in (python, python3, gunicorn, uvicorn, nginx, httpd, apache2)
+  output: "REFLEX: %proc.pname spawned %proc.name cmd=%proc.cmdline pid=%proc.pid"
+  priority: CRITICAL
+  tags: [execution, rce, reflex]

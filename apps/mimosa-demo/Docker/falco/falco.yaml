@@ -1,0 +1,15 @@
+rules_file:
+  - /etc/falco/rules.d
+
+json_output: true
+stdout_output:
+  enabled: true
+
+program_output:
+  enabled: true
+  keep_alive: false
+  program: "sh -c /usr/local/bin/mimosa_kill.sh"
+
+# Utilise le moteur par défaut (auto-détection)
+# engine:
+#   kind: modern_ebpf

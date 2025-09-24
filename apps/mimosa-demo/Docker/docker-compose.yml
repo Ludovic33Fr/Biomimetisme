@@ -1,0 +1,36 @@
+version: "3.9"
+services:
+  webapp:
+    build: ./webapp
+    container_name: mimosa_webapp
+    ports:
+      - "5000:5000"
+
+  proxy:
+    build: ./proxy
+    container_name: mimosa_proxy
+    depends_on:
+      - webapp
+    ports:
+      - "8080:80"
+
+  falco:
+    image: falcosecurity/falco:latest
+    container_name: mimosa_falco
+    privileged: true
+    pid: "host"
+    network_mode: "host"
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    environment:
+        - FALCO_HOST_ROOT=/host
+    volumes:
+      - /proc:/host/proc:ro
+      - /boot:/host/boot:ro
+      - /lib/modules:/host/lib/modules:ro
+      - /usr/src:/host/usr/src:ro
+      - ./falco/falco.yaml:/etc/falco/falco.yaml:ro
+      - ./falco/mimosa.rules:/etc/falco/rules.d/mimosa.rules:ro
+      - ./falco/mimosa_kill.sh:/usr/local/bin/mimosa_kill.sh:ro
+    command: ["falco","-o","engine.kind=modern_ebpf","-o","modern_ebpf.probe_path=/usr/bin/falco-probe","-c","/etc/falco/falco.yaml"]

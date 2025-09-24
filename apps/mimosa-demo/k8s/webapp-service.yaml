@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp
+  namespace: mimosa-demo
+spec:
+  selector:
+    app: webapp
+  ports:
+    - port: 5000
+      targetPort: 5000
+      protocol: TCP

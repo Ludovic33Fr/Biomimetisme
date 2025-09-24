@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: falco
+  namespace: mimosa-demo
+spec:
+  selector:
+    matchLabels:
+      app: falco
+  template:
+    metadata:
+      labels:
+        app: falco
+    spec:
+      hostPID: true
+      containers:
+        - name: falco
+          image: falcosecurity/falco:latest
+          securityContext:
+            privileged: true
+          args: ["falco","--modern-bpf","-c","/etc/falco/falco.yaml"]
+          volumeMounts:
+            - name: falco-config
+              mountPath: /etc/falco/falco.yaml
+              subPath: falco.yaml
+              readOnly: true
+            - name: falco-config
+              mountPath: /etc/falco/rules.d/mimosa.rules
+              subPath: mimosa.rules
+              readOnly: true
+            - name: falco-config
+              mountPath: /usr/local/bin/mimosa_kill.sh
+              subPath: mimosa_kill.sh
+              readOnly: true
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: host-boot
+              mountPath: /host/boot
+              readOnly: true
+            - name: host-lib-modules
+              mountPath: /host/lib/modules
+              readOnly: true
+            - name: host-usr-src
+              mountPath: /host/usr/src
+              readOnly: true
+      volumes:
+        - name: falco-config
+          configMap:
+            name: falco-config
+            defaultMode: 0755
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: host-boot
+          hostPath:
+            path: /boot
+        - name: host-lib-modules
+          hostPath:
+            path: /lib/modules
+        - name: host-usr-src
+          hostPath:
+            path: /usr/src

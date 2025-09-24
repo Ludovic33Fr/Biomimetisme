@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: webapp-config
+  namespace: mimosa-demo
+data:
+  app.py: |
+    from flask import Flask, request, jsonify
+    import subprocess, shlex, time, os
+
+    app = Flask(__name__)
+
+    @app.route("/")
+    def index():
+        return jsonify(ok=True, message="Mimosa demo webapp (K8s)")
+
+    @app.route("/search")
+    def search():
+        q = request.args.get("q", "")
+        return jsonify(ok=True, q=q)
+
+    @app.route("/spawn")
+    def spawn():
+        cmd = request.args.get("cmd", "id")
+        try:
+            proc = subprocess.Popen(["/bin/sh", "-c", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                out, err = proc.communicate(timeout=2)
+                rc = proc.returncode
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                out, err = b"", b"Killed by timeout (Falco likely intervened)"
+                rc = -9
+            return jsonify(ok=(rc==0), returncode=rc, stdout=out.decode(errors="ignore"), stderr=err.decode(errors="ignore"))
+        except Exception as e:
+            return jsonify(ok=False, error=str(e)), 500
