@@ -1,0 +1,12 @@
+services:
+  mimosa_api:
+    build: ./api
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - THRESHOLD_RPS=10
+      - PATH_DIVERSITY=5
+      - TRIP_MS=30000
+      - WINDOW_S=10
+    restart: unless-stopped

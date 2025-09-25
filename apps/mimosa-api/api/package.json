@@ -1,0 +1,23 @@
+{
+    "name": "mimosa-api",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "node --loader ts-node/esm src/index.ts"
+    },
+    "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+    },
+    "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.30",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+    }
+}

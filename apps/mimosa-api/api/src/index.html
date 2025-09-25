@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mimosa API — Dashboard</title>
+<style>
+:root { --bg:#0b1020; --card:#121a33; --ok:#5dd39e; --warn:#ffd866; --bad:#ff6b6b; --muted:#9aa4b2; }
+*{box-sizing:border-box} body{margin:0;font-family:system-ui,Segoe UI,Roboto,Ubuntu;color:white;background:linear-gradient(160deg,#0b1020,#0f1430)}
+header{padding:16px 20px;display:flex;align-items:center;gap:16px;border-bottom:1px solid rgba(255,255,255,.06)}
+header h1{margin:0;font-weight:700;font-size:18px;letter-spacing:.3px}
+.wrap{max-width:1100px;margin:24px auto;padding:0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.card{background:var(--card);border-radius:16px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.06)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ip{font-monospace: monospace; color:#d1d6e0}
+.pill{padding:4px 10px;border-radius:999px;font-size:12px;background:#1b2447;color:#cdd7ff;border:1px solid rgba(255,255,255,.08)}
+.rps{font-weight:700}
+.ttl{color:var(--warn)}
+.mimosa{position:relative;height:140px;display:grid;place-items:center;margin-top:6px}
+.flower{position:relative;width:96px;height:96px;transition:transform .4s ease}
+.core{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:28px;height:28px;border-radius:50%;background:#ffd866;box-shadow:0 0 30px rgba(255,216,102,.5)}
+.petal{--i:0;position:absolute;left:50%;top:50%;width:20px;height:36px;border-radius:20px;background:#5dd39e;transform-origin:50% 80px;transform:rotate(calc(var(--i)*45deg)) translate(-50%,-80px) scaleY(1);transition:transform .5s ease;
+filter: drop-shadow(0 6px 10px rgba(0,0,0,.25));}
+.flower.folded .petal{transform:rotate(calc(var(--i)*45deg)) translate(-50%,-80px) scaleY(0.2)}
+.reason{color:#ffc0cb;font-size:12px;margin-top:6px;min-height:14px}
+footer{opacity:.7;text-align:center;margin:20px 0;font-size:12px;color:#bac4d6}
+</style>
+</head>
+<body>
+<header>
+<h1>🌿 Mimosa API — "je te touche, tu te refermes"</h1>
+<span class="pill">Seuil RPS: <b id="th-rps">…</b></span>
+<span class="pill">Diversité chemins: <b id="th-div">…</b></span>
+<span class="pill">Repli: <b id="th-trip">…</b> ms</span>
+</header>
+<div class="wrap">
+<div id="grid" class="grid"></div>
+<footer>Frappez <code>/api/data</code> ou plusieurs <code>/api/noisy/{id}</code> pour déclencher un repli.</footer>
+</div>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" integrity="sha384-N9lLZr9qGLTa2v1GQxNqQxJjvJmKyd3q5lLNV23X0o9b1j1U1yJ3N+zQfD+yYvF5" crossorigin="anonymous"></script>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
