@@ -85,6 +85,16 @@ app.get('/api/state', (_req, res) => {
     res.json({ items: limiter.snapshot(50) });
 });
 
+// Configuration pour le dashboard
+app.get('/api/config', (_req, res) => {
+    res.json({
+        thresholdRps: config.thresholdRps,
+        pathDiversity: config.pathDiversity,
+        tripMs: config.tripMs,
+        windowS: config.windowS
+    });
+});
+
 
 // Route pour la page d'accueil
 app.get('/', (req, res) => {
