@@ -35,6 +35,24 @@ header{
     flex-wrap:wrap;
 }
 
+.config-info{
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+    opacity:0.8;
+}
+
+.live-metrics{
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+}
+
+.live-metrics .pill{
+    background:var(--accent);
+    border:1px solid rgba(124,58,237,.3);
+}
+
 header h1{
     margin:0;
     font-weight:700;
@@ -215,15 +233,156 @@ footer{
 <body>
 <header>
 <h1>🌿 Mimosa API — "je te touche, tu te refermes"</h1>
-<span class="pill">Seuil RPS: <b id="th-rps">…</b></span>
-<span class="pill">Diversité chemins: <b id="th-div">…</b></span>
-<span class="pill">Repli: <b id="th-trip">…</b> ms</span>
+<div class="config-info">
+    <span class="pill">Seuil RPS: <b id="config-rps">…</b></span>
+    <span class="pill">Diversité chemins: <b id="config-div">…</b></span>
+    <span class="pill">Repli: <b id="config-trip">…</b> ms</span>
+</div>
+<div class="live-metrics">
+    <span class="pill">Requêtes totales: <b id="th-rps">0</b></span>
+    <span class="pill">IPs actives: <b id="th-div">0</b></span>
+    <span class="pill">Repliées: <b id="th-trip">0</b></span>
+</div>
 </header>
 <div class="wrap">
 <div id="grid" class="grid"></div>
-<footer>Frappez <code>/api/data</code> ou plusieurs <code>/api/noisy/{id}</code> pour déclencher un repli.</footer>
+<footer>
+    <div style="margin-bottom: 10px;">
+        <button onclick="testNormalRequests()" style="margin-right: 10px; padding: 8px 16px; background: var(--ok); color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Test Requêtes Normales
+        </button>
+        <button onclick="testNoisyRequests()" style="margin-right: 10px; padding: 8px 16px; background: var(--warn); color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Test Attaque (Diversité)
+        </button>
+        <button onclick="refreshDashboard()" style="padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Rafraîchir
+        </button>
+        <!-- <button onclick="debugTest()" style="padding: 8px 16px; background: #ff6b6b; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Debug Test
+        </button> -->
+    </div>
+    Frappez <code>/api/data</code> ou plusieurs <code>/api/noisy/{id}</code> pour déclencher un repli.
+</footer>
 </div>
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" integrity="sha384-N9lLZr9qGLTa2v1GQxNqQxJjvJmKyd3q5lLNV23X0o9b1j1U1yJ3N+zQfD+yYvF5" crossorigin="anonymous"></script>
-<script type="module" src="/app.js"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+// Test de débogage immédiat
+console.log('🔧 HTML: Script de débogage chargé');
+console.log('🔧 HTML: Vérification des éléments DOM...');
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('🔧 HTML: DOM chargé');
+    const thRps = document.getElementById('th-rps');
+    const thDiv = document.getElementById('th-div');
+    const thTrip = document.getElementById('th-trip');
+    console.log('🔧 HTML: Éléments trouvés:', { thRps, thDiv, thTrip });
+    
+    // Test de mise à jour directe
+    if (thRps) {
+        thRps.textContent = 'TEST';
+        console.log('🔧 HTML: th-rps mis à jour avec "TEST"');
+    }
+    
+    // Test des boutons
+    console.log('🔧 HTML: Test des boutons...');
+    const debugButton = document.querySelector('button[onclick="debugTest()"]');
+    console.log('🔧 HTML: Bouton debug trouvé:', debugButton);
+    
+    if (debugButton) {
+        debugButton.addEventListener('click', function() {
+            console.log('🔧 HTML: Bouton debug cliqué!');
+            if (typeof window.debugTest === 'function') {
+                window.debugTest();
+            } else {
+                console.error('❌ debugTest n\'est pas disponible dans window');
+            }
+        });
+    }
+});
+
+// Fonction de test de débogage simple accessible depuis la console
+window.simpleDebug = function() {
+    console.log('🔧 === TEST DE DÉBOGAGE SIMPLE ===');
+    
+    // Test 1: Vérifier les éléments DOM
+    const thRps = document.getElementById('th-rps');
+    const thDiv = document.getElementById('th-div');
+    const thTrip = document.getElementById('th-trip');
+    
+    console.log('1️⃣ Éléments DOM:');
+    console.log('   th-rps:', thRps);
+    console.log('   th-div:', thDiv);
+    console.log('   th-trip:', thTrip);
+    
+    // Test 2: Mise à jour directe
+    if (thRps) {
+        thRps.textContent = 'DIRECT';
+        console.log('✅ th-rps mis à jour avec "DIRECT"');
+    }
+    
+    // Test 3: Vérifier les fonctions
+    console.log('2️⃣ Fonctions disponibles:');
+    console.log('   debugTest:', typeof window.debugTest);
+    console.log('   testNormalRequests:', typeof window.testNormalRequests);
+    
+    console.log('🔧 === FIN DU TEST SIMPLE ===');
+};
+
+console.log('🔧 HTML: Fonction simpleDebug disponible dans window.simpleDebug()');
+
+// Fonction de test WebSocket temporaire
+window.testWebSocket = function() {
+    console.log('🔧 === TEST WEBSOCKET TEMPORAIRE ===');
+    console.log('⚠️ Fonction temporaire - app.js pas encore chargé');
+    
+    // Vérifier si app.js est chargé
+    if (typeof window.debugTest === 'function') {
+        console.log('✅ app.js est chargé, utilise la vraie fonction');
+        // Appeler la vraie fonction testWebSocket
+        if (window._realTestWebSocket) {
+            window._realTestWebSocket();
+        } else {
+            console.log('⚠️ Vraie fonction pas encore définie');
+        }
+    } else {
+        console.log('❌ app.js pas encore chargé, attendez...');
+        console.log('   - debugTest disponible:', typeof window.debugTest);
+        console.log('   - testNormalRequests disponible:', typeof window.testNormalRequests);
+    }
+    
+    console.log('🔧 === FIN TEST WEBSOCKET TEMPORAIRE ===');
+};
+
+// Fonction de test simple
+window.quickTest = function() {
+    console.log('🔧 === TEST RAPIDE ===');
+    console.log('1️⃣ Vérification des éléments DOM:');
+    const thRps = document.getElementById('th-rps');
+    const thDiv = document.getElementById('th-div');
+    const thTrip = document.getElementById('th-trip');
+    console.log('   th-rps:', thRps);
+    console.log('   th-div:', thDiv);
+    console.log('   th-trip:', thTrip);
+    
+    if (thRps) {
+        thRps.textContent = 'QUICK';
+        console.log('✅ th-rps mis à jour avec "QUICK"');
+    }
+    
+    console.log('2️⃣ Vérification des fonctions:');
+    console.log('   debugTest:', typeof window.debugTest);
+    console.log('   testNormalRequests:', typeof window.testNormalRequests);
+    console.log('   testWebSocket:', typeof window.testWebSocket);
+    
+    console.log('🔧 === FIN TEST RAPIDE ===');
+};
+
+// Fonction de test WebSocket spécifique (sera définie dans app.js)
+window.testWebSocketConnection = function() {
+    console.log('🔧 === TEST CONNEXION WEBSOCKET TEMPORAIRE ===');
+    console.log('⚠️ Cette fonction sera définie dans app.js');
+    console.log('🔧 === FIN TEST CONNEXION WEBSOCKET TEMPORAIRE ===');
+};
+</script>
+<script src="/app.js"></script>
 </body>
 </html>

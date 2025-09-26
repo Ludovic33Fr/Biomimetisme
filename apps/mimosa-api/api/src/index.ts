@@ -50,6 +50,13 @@ app.use((req, res, next) => {
     const ip = getIp(req);
     const path = req.path;
 
+    // Exclure la route racine, les fichiers statiques et l'API state du filtrage
+    if (path === '/' || path.startsWith('/public/') || path.startsWith('/static/') || path === '/api/state') {
+        console.log(`📁 Route statique exclue du filtrage: ${path}`);
+        return next();
+    }
+
+    // Vérifier d'abord si l'IP est déjà repliée
     const { tripped, ttlMs } = limiter.isTripped(ip);
     if (tripped) {
         return res.status(429).json({
@@ -60,7 +67,25 @@ app.use((req, res, next) => {
         });
     }
 
+    // Enregistrer la requête et vérifier si elle déclenche un repli
     const rec = limiter.record(ip, path);
+    
+    // Vérifier à nouveau après l'enregistrement
+    const { tripped: nowTripped, ttlMs: newTtlMs } = limiter.isTripped(ip);
+    if (nowTripped) {
+        // Émettre l'événement de repli
+        io.emit('trip', { ip, ttlMs: newTtlMs, reason: rec.trippedNow?.reason || 'RPS élevé' });
+        
+        return res.status(429).json({
+            status: 'folded',
+            ip,
+            ttlMs: newTtlMs,
+            message: 'Mimosa plié — calme requis avant réouverture.'
+        });
+    }
+
+    // Émettre les métriques pour les requêtes normales
+    console.log(`📡 Émission WebSocket metrics: IP=${ip}, RPS=${rec.rps}`);
     io.emit('metrics', { ip, rps: rec.rps });
     next();
 });
