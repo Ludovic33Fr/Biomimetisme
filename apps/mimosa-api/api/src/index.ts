@@ -81,9 +81,7 @@ app.use((req, res, next) => {
     // Vérifier à nouveau après l'enregistrement
     const { tripped: nowTripped, ttlMs: newTtlMs } = limiter.isTripped(ip);
     if (nowTripped) {
-        // Émettre l'événement de repli
-        io.emit('trip', { ip, ttlMs: newTtlMs, reason: rec.trippedNow?.reason || 'RPS élevé' });
-        
+        // L'événement 'trip' est déjà émis par limiter.onTrip, pas besoin de le refaire ici
         return res.status(429).json({
             status: 'folded',
             ip,
