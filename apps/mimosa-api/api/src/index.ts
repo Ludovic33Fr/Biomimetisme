@@ -20,7 +20,15 @@ const io = new IOServer(server, { cors: { origin: '*' } });
 
 // util pour IP (derrière proxy Docker, Express peut retourner l'IP interne)
 app.set('trust proxy', false);
-const getIp = (req: express.Request) => (req.ip || req.socket.remoteAddress || 'unknown');
+const getIp = (req: express.Request) => {
+    // Priorité au header X-Fake-IP pour la simulation
+    const fakeIp = req.headers['x-fake-ip'] as string;
+    if (fakeIp) {
+        console.log(`🎭 Simulation IP: ${fakeIp} (IP réelle: ${req.ip || req.socket.remoteAddress || 'unknown'})`);
+        return fakeIp;
+    }
+    return req.ip || req.socket.remoteAddress || 'unknown';
+};
 
 
 // Configuration du limiteur
