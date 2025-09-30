@@ -39,9 +39,19 @@ const config: LimiterConfig = {
     tripMs: parseInt(process.env.TRIP_MS || '30000')
 };
 
+// Configuration spéciale pour les réservations (plus stricte)
+const reservationConfig: LimiterConfig = {
+    windowS: 5, // Fenêtre plus courte
+    thresholdRps: 3, // Seuil RPS plus bas
+    pathDiversity: 2, // Diversité plus stricte
+    tripMs: 60000 // Blocage plus long (1 minute)
+};
+
+const reservationLimiter = new MimosaLimiter(reservationConfig);
+
 const limiter = new MimosaLimiter(config);
 
-// Callbacks pour les événements
+// Callbacks pour les événements du limiteur principal
 limiter.onTrip = (ev: TripEvent) => {
     console.log(`🚨 IP ${ev.ip} tripped: ${ev.reason} (TTL: ${ev.ttlMs}ms)`);
     io.emit('trip', ev); // push au dashboard
@@ -49,6 +59,17 @@ limiter.onTrip = (ev: TripEvent) => {
 
 limiter.onRecover = (ip: string) => {
     console.log(`✅ IP ${ip} recovered`);
+    io.emit('recover', { ip });
+};
+
+// Callbacks pour les événements du limiteur de réservation
+reservationLimiter.onTrip = (ev: TripEvent) => {
+    console.log(`🎮 RÉSERVATION BLOQUÉE - IP ${ev.ip}: ${ev.reason} (TTL: ${ev.ttlMs}ms)`);
+    io.emit('trip', ev); // push au dashboard
+};
+
+reservationLimiter.onRecover = (ip: string) => {
+    console.log(`🎮 RÉSERVATION DÉBLOQUÉE - IP ${ip} recovered`);
     io.emit('recover', { ip });
 };
 
@@ -130,6 +151,73 @@ app.get('/api/config', (_req, res) => {
 // Route pour la page d'accueil
 app.get('/', (req, res) => {
     res.sendFile('index.html', { root: './src' });
+});
+
+// Route pour la page de réservation PlayStation 5
+app.get('/ps5', (req, res) => {
+    res.sendFile('ps5-reservation.html', { root: './src' });
+});
+
+// Endpoint de réservation PlayStation 5 avec limitation spécifique
+app.post('/api/reserve-ps5', (req, res) => {
+    const ip = getIp(req);
+    const { email, name, phone, quantity } = req.body;
+    
+    // Validation des données
+    if (!email || !name || !phone || !quantity) {
+        return res.status(400).json({
+            success: false,
+            message: 'Tous les champs sont requis'
+        });
+    }
+    
+    // Vérifier si l'IP est bloquée par le limiteur de réservation
+    const { tripped, ttlMs } = reservationLimiter.isTripped(ip);
+    if (tripped) {
+        return res.status(429).json({
+            success: false,
+            message: 'Trop de tentatives de réservation. Veuillez patienter.',
+            ttlMs,
+            status: 'rate_limited'
+        });
+    }
+    
+    // Enregistrer la tentative de réservation avec le limiteur spécialisé
+    const rec = reservationLimiter.record(ip, '/api/reserve-ps5');
+    
+    // Vérifier si cette tentative déclenche un blocage
+    const { tripped: nowTripped, ttlMs: newTtlMs } = reservationLimiter.isTripped(ip);
+    if (nowTripped) {
+        return res.status(429).json({
+            success: false,
+            message: 'Trop de tentatives de réservation. Veuillez patienter.',
+            ttlMs: newTtlMs,
+            status: 'rate_limited'
+        });
+    }
+    
+    // Simulation de la réservation
+    const reference = `PS5-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    
+    // Log de la réservation
+    console.log(`🎮 Réservation PlayStation 5: ${email} - Référence: ${reference}`);
+    
+    // Émettre les métriques
+    io.emit('metrics', { ip, rps: rec.rps });
+    
+    res.json({
+        success: true,
+        message: 'Réservation confirmée',
+        reference,
+        details: {
+            email,
+            name,
+            phone,
+            quantity: parseInt(quantity),
+            price: 499.99 * parseInt(quantity),
+            estimatedDelivery: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        }
+    });
 });
 
 // Fichiers statiques (dashboard)

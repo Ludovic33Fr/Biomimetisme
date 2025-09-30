@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Réservation PlayStation 5 — Mimosa Protection</title>
+<style>
+:root { 
+    --bg:#0b1020; 
+    --card:#121a33; 
+    --ok:#5dd39e; 
+    --warn:#ffd866; 
+    --bad:#ff6b6b; 
+    --muted:#9aa4b2; 
+    --accent:#7c3aed;
+    --ps-blue:#003791;
+    --ps-gold:#ffd700;
+}
+
+*{box-sizing:border-box} 
+
+body{
+    margin:0;
+    font-family:system-ui,Segoe UI,Roboto,Ubuntu;
+    color:white;
+    background:linear-gradient(160deg,#0b1020,#0f1430);
+    min-height:100vh;
+}
+
+header{
+    padding:16px 20px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    border-bottom:1px solid rgba(255,255,255,.06);
+    flex-wrap:wrap;
+}
+
+header h1{
+    margin:0;
+    font-weight:700;
+    font-size:18px;
+    letter-spacing:.3px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+}
+
+.ps-logo{
+    width:32px;
+    height:32px;
+    background:var(--ps-blue);
+    border-radius:8px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:bold;
+    color:white;
+}
+
+.wrap{max-width:1200px;margin:24px auto;padding:0 20px}
+
+.product-card{
+    background:var(--card);
+    border-radius:20px;
+    padding:32px;
+    box-shadow:0 20px 40px rgba(0,0,0,.3);
+    border:1px solid rgba(255,255,255,.06);
+    position:relative;
+    overflow:hidden;
+}
+
+.product-card::before{
+    content:'';
+    position:absolute;
+    top:0;
+    left:0;
+    right:0;
+    height:4px;
+    background:linear-gradient(90deg, var(--ps-blue), var(--ps-gold));
+}
+
+.ps5-image{
+    width:100%;
+    max-width:400px;
+    height:300px;
+    background:linear-gradient(135deg, #1a1a1a, #333);
+    border-radius:16px;
+    margin:0 auto 24px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:48px;
+    color:var(--ps-blue);
+    position:relative;
+    overflow:hidden;
+}
+
+.ps5-image::before{
+    content:'🎮';
+    font-size:120px;
+    opacity:0.1;
+    position:absolute;
+    top:50%;
+    left:50%;
+    transform:translate(-50%, -50%);
+}
+
+.product-title{
+    font-size:32px;
+    font-weight:700;
+    margin:0 0 8px 0;
+    color:white;
+    text-align:center;
+}
+
+.product-subtitle{
+    font-size:16px;
+    color:var(--muted);
+    text-align:center;
+    margin-bottom:24px;
+}
+
+.price{
+    font-size:48px;
+    font-weight:700;
+    color:var(--ps-gold);
+    text-align:center;
+    margin:24px 0;
+    text-shadow:0 0 20px rgba(255,215,0,0.3);
+}
+
+.availability{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    margin:16px 0;
+    padding:12px 24px;
+    background:rgba(93,211,158,0.1);
+    border:1px solid var(--ok);
+    border-radius:12px;
+    color:var(--ok);
+    font-weight:600;
+}
+
+.availability-indicator{
+    width:12px;
+    height:12px;
+    border-radius:50%;
+    background:var(--ok);
+    animation:pulse 2s infinite;
+}
+
+.reservation-form{
+    margin-top:32px;
+    padding:24px;
+    background:rgba(0,0,0,0.2);
+    border-radius:16px;
+    border:1px solid rgba(255,255,255,.1);
+}
+
+.form-group{
+    margin-bottom:20px;
+}
+
+.form-group label{
+    display:block;
+    margin-bottom:8px;
+    font-weight:600;
+    color:white;
+}
+
+.form-group input,
+.form-group select{
+    width:100%;
+    padding:12px 16px;
+    border:1px solid rgba(255,255,255,.2);
+    border-radius:8px;
+    background:rgba(255,255,255,.05);
+    color:white;
+    font-size:16px;
+    transition:all 0.3s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus{
+    outline:none;
+    border-color:var(--ps-blue);
+    box-shadow:0 0 0 3px rgba(0,55,145,0.2);
+}
+
+.reservation-button{
+    width:100%;
+    padding:16px 24px;
+    background:linear-gradient(135deg, var(--ps-blue), #0044aa);
+    color:white;
+    border:none;
+    border-radius:12px;
+    font-size:18px;
+    font-weight:700;
+    cursor:pointer;
+    transition:all 0.3s ease;
+    text-transform:uppercase;
+    letter-spacing:1px;
+    position:relative;
+    overflow:hidden;
+}
+
+.reservation-button:hover{
+    transform:translateY(-2px);
+    box-shadow:0 10px 30px rgba(0,55,145,0.4);
+}
+
+.reservation-button:active{
+    transform:translateY(0);
+}
+
+.reservation-button:disabled{
+    background:var(--muted);
+    cursor:not-allowed;
+    transform:none;
+    box-shadow:none;
+}
+
+.reservation-button.loading{
+    background:var(--warn);
+}
+
+.reservation-button.success{
+    background:var(--ok);
+}
+
+.reservation-button.error{
+    background:var(--bad);
+}
+
+.status-message{
+    margin-top:16px;
+    padding:12px 16px;
+    border-radius:8px;
+    text-align:center;
+    font-weight:600;
+    display:none;
+}
+
+.status-message.success{
+    background:rgba(93,211,158,0.1);
+    border:1px solid var(--ok);
+    color:var(--ok);
+}
+
+.status-message.error{
+    background:rgba(255,107,107,0.1);
+    border:1px solid var(--bad);
+    color:var(--bad);
+}
+
+.status-message.warning{
+    background:rgba(255,216,102,0.1);
+    border:1px solid var(--warn);
+    color:var(--warn);
+}
+
+.protection-info{
+    margin-top:24px;
+    padding:16px;
+    background:rgba(124,58,237,0.1);
+    border:1px solid var(--accent);
+    border-radius:12px;
+    text-align:center;
+}
+
+.protection-info h3{
+    margin:0 0 8px 0;
+    color:var(--accent);
+    font-size:16px;
+}
+
+.protection-info p{
+    margin:0;
+    color:var(--muted);
+    font-size:14px;
+}
+
+.rate-limit-info{
+    margin-top:16px;
+    padding:12px;
+    background:rgba(255,216,102,0.1);
+    border:1px solid var(--warn);
+    border-radius:8px;
+    font-size:12px;
+    color:var(--warn);
+    text-align:center;
+}
+
+/* Animations */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.product-card{
+    animation:fadeIn 0.8s ease-out;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .wrap {
+        padding: 0 16px;
+    }
+    
+    .product-card {
+        padding: 24px 16px;
+    }
+    
+    .product-title {
+        font-size: 24px;
+    }
+    
+    .price {
+        font-size: 36px;
+    }
+}
+
+/* Loading animation */
+.loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255,255,255,.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: spin 1s ease-in-out infinite;
+    margin-right: 8px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+</style>
+</head>
+<body>
+<header>
+    <h1>
+        <div class="ps-logo">PS</div>
+        Réservation PlayStation 5
+    </h1>
+    <div style="display:flex; gap:12px; align-items:center;">
+        <a href="/" style="color:var(--muted); text-decoration:none; padding:8px 16px; border:1px solid rgba(255,255,255,.2); border-radius:8px; transition:all 0.3s ease;">
+            ← Retour au Dashboard
+        </a>
+        <div id="connection-status" style="width:12px; height:12px; border-radius:50%; background:var(--bad);"></div>
+    </div>
+</header>
+
+<div class="wrap">
+    <div class="product-card">
+        <div class="ps5-image">
+            <div style="font-size:64px;">🎮</div>
+        </div>
+        
+        <h1 class="product-title">PlayStation 5</h1>
+        <p class="product-subtitle">Console de jeu nouvelle génération</p>
+        
+        <div class="price">499,99 €</div>
+        
+        <div class="availability">
+            <div class="availability-indicator"></div>
+            <span>En stock - Livraison sous 24h</span>
+        </div>
+        
+        <div class="reservation-form">
+            <h3 style="margin:0 0 24px 0; text-align:center; color:white;">Réserver maintenant</h3>
+            
+            <form id="reservationForm">
+                <div class="form-group">
+                    <label for="email">Adresse email</label>
+                    <input type="email" id="email" name="email" required placeholder="votre@email.com">
+                </div>
+                
+                <div class="form-group">
+                    <label for="name">Nom complet</label>
+                    <input type="text" id="name" name="name" required placeholder="Jean Dupont">
+                </div>
+                
+                <div class="form-group">
+                    <label for="phone">Téléphone</label>
+                    <input type="tel" id="phone" name="phone" required placeholder="06 12 34 56 78">
+                </div>
+                
+                <div class="form-group">
+                    <label for="quantity">Quantité</label>
+                    <select id="quantity" name="quantity" required>
+                        <option value="1">1 console</option>
+                        <option value="2">2 consoles</option>
+                        <option value="3">3 consoles</option>
+                    </select>
+                </div>
+                
+                <button type="submit" class="reservation-button" id="reservationButton">
+                    Réserver PlayStation 5
+                </button>
+                
+                <div id="statusMessage" class="status-message"></div>
+            </form>
+        </div>
+        
+        <div class="protection-info">
+            <h3>🛡️ Protection Mimosa Active</h3>
+            <p>Cette page est protégée par Mimosa. Les tentatives de réservation abusives seront automatiquement bloquées.</p>
+        </div>
+        
+        <div id="rateLimitInfo" class="rate-limit-info" style="display:none;">
+            ⚠️ Limitation de taux active - Veuillez patienter avant de refaire une réservation
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+// Configuration WebSocket
+const socket = io({
+    transports: ['websocket', 'polling'],
+    timeout: 20000,
+    forceNew: true
+});
+
+// Variables globales
+let isBlocked = false;
+let blockUntil = 0;
+
+// Éléments DOM
+const form = document.getElementById('reservationForm');
+const button = document.getElementById('reservationButton');
+const statusMessage = document.getElementById('statusMessage');
+const rateLimitInfo = document.getElementById('rateLimitInfo');
+const connectionStatus = document.getElementById('connection-status');
+
+// Fonction pour afficher un message de statut
+function showStatus(message, type) {
+    statusMessage.textContent = message;
+    statusMessage.className = `status-message ${type}`;
+    statusMessage.style.display = 'block';
+    
+    // Masquer après 5 secondes pour les messages de succès
+    if (type === 'success') {
+        setTimeout(() => {
+            statusMessage.style.display = 'none';
+        }, 5000);
+    }
+}
+
+// Fonction pour mettre à jour l'état du bouton
+function updateButtonState(state) {
+    button.disabled = state === 'disabled' || state === 'loading';
+    button.className = `reservation-button ${state}`;
+    
+    if (state === 'loading') {
+        button.innerHTML = '<span class="loading-spinner"></span>Traitement...';
+    } else if (state === 'success') {
+        button.innerHTML = '✅ Réservé avec succès';
+    } else if (state === 'error') {
+        button.innerHTML = '❌ Erreur de réservation';
+    } else {
+        button.innerHTML = 'Réserver PlayStation 5';
+    }
+}
+
+// Fonction pour vérifier si l'utilisateur est bloqué
+function checkBlockStatus() {
+    if (isBlocked && Date.now() < blockUntil) {
+        const remainingTime = Math.ceil((blockUntil - Date.now()) / 1000);
+        rateLimitInfo.textContent = `⚠️ Limitation de taux active - Veuillez patienter ${remainingTime}s avant de refaire une réservation`;
+        rateLimitInfo.style.display = 'block';
+        updateButtonState('disabled');
+        return true;
+    } else {
+        isBlocked = false;
+        blockUntil = 0;
+        rateLimitInfo.style.display = 'none';
+        updateButtonState('normal');
+        return false;
+    }
+}
+
+// Gestion de la soumission du formulaire
+form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    if (checkBlockStatus()) {
+        return;
+    }
+    
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData);
+    
+    updateButtonState('loading');
+    showStatus('Traitement de votre réservation...', 'warning');
+    
+    try {
+        const response = await fetch('/api/reserve-ps5', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Fake-IP': data.email // Utiliser l'email comme IP simulée pour le test
+            },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            updateButtonState('success');
+            showStatus(`✅ Réservation confirmée ! Référence: ${result.reference}`, 'success');
+            form.reset();
+        } else {
+            updateButtonState('error');
+            showStatus(`❌ ${result.message}`, 'error');
+            
+            // Si c'est un blocage, mettre à jour l'état local
+            if (response.status === 429) {
+                isBlocked = true;
+                blockUntil = Date.now() + (result.ttlMs || 30000);
+                checkBlockStatus();
+            }
+        }
+    } catch (error) {
+        updateButtonState('error');
+        showStatus('❌ Erreur de connexion. Veuillez réessayer.', 'error');
+        console.error('Erreur de réservation:', error);
+    }
+});
+
+// Événements WebSocket
+socket.on('trip', ({ ip, ttlMs, reason }) => {
+    console.log('🚨 Blocage détecté:', { ip, ttlMs, reason });
+    
+    // Vérifier si c'est notre IP (email)
+    const email = document.getElementById('email').value;
+    if (ip === email) {
+        isBlocked = true;
+        blockUntil = Date.now() + ttlMs;
+        checkBlockStatus();
+        showStatus(`🚨 ${reason} - Blocage temporaire`, 'error');
+    }
+});
+
+socket.on('recover', ({ ip }) => {
+    console.log('✅ Récupération détectée:', ip);
+    
+    const email = document.getElementById('email').value;
+    if (ip === email) {
+        isBlocked = false;
+        blockUntil = 0;
+        checkBlockStatus();
+        showStatus('✅ Limitation levée - Vous pouvez refaire une réservation', 'success');
+    }
+});
+
+socket.on('connect', () => {
+    console.log('✅ Connecté au serveur WebSocket');
+    connectionStatus.style.backgroundColor = 'var(--ok)';
+});
+
+socket.on('disconnect', () => {
+    console.log('⚠️ Déconnecté du serveur WebSocket');
+    connectionStatus.style.backgroundColor = 'var(--bad)';
+});
+
+// Vérification périodique du statut de blocage
+setInterval(checkBlockStatus, 1000);
+
+// Initialisation
+console.log('🎮 Page de réservation PlayStation 5 chargée');
+console.log('🛡️ Protection Mimosa active');
+</script>
+</body>
+</html>
