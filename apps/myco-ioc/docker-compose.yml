@@ -1,37 +1,39 @@
+version: "3.9"
 services:
   bus:
     image: nats:2.10
-    ports: ["4222:4222","8222:8222"]  # client / monitoring
+    ports:
+      - "4222:4222"   # client
+      - "8222:8222"   # monitoring
 
   node:
     build: ./node
-    environment:
-      NODE_ID: node-1
-      NATS_URL: nats://bus:4222
     depends_on: [bus]
+    environment:
+      NATS_URL: nats://bus:4222
+      # NODE_ID is optional; will default to container hostname
+      WINDOW_MS: "5000"
+      THRESH: "20"
+      BLOCK_TTL_SEC: "180"
+      BAD_PATHS: "/wp-login.php,/xmlrpc.php,/admin/login"
+      BAD_STATUS: "401,403"
 
   controller:
     build: ./controller
+    depends_on: [bus]
     environment:
       NATS_URL: nats://bus:4222
-      QUORUM: "1"           # "2" => au moins 2 nodes d’accord
+      QUORUM: "1"
       DEFAULT_TTL_SEC: "180"
-      WS_PORT: "8080"
-    depends_on: [bus]
-    ports: ["8080:8080"]
-
-  dashboard:
-    build: ./dashboard
-    environment:
-      NEXT_PUBLIC_WS_URL: ws://localhost:8080
-    depends_on: [controller]
-    ports: ["3000:3000"]
+      WS_PORT: "8081"
+    ports:
+      - "8081:8081"
 
   traffic:
     build: ./traffic
+    depends_on: [bus]
     environment:
       NATS_URL: nats://bus:4222
-    depends_on: [bus]
 
   natsbox:
     image: synadia/nats-box
