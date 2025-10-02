@@ -116,6 +116,8 @@
         .node-circle.under-attack { fill: #e67e22; }
         .node-circle.ioc-applied { fill: #3498db; }
         .node-circle.high-drops { fill: #e74c3c; }
+        .node-circle.isolated { fill: #95a5a6; }
+        .node-circle.drift { fill: #9b59b6; }
         
         .node-label {
             font-size: 12px;
@@ -384,6 +386,76 @@
         .health-online { background: #28a745; }
         .health-isolated { background: #dc3545; }
         
+        /* SLO Alert Styles */
+        .slo-alert {
+            padding: 0.75rem;
+            margin: 0.5rem 0;
+            border-radius: 8px;
+            border-left: 4px solid;
+            font-size: 0.9rem;
+        }
+        
+        .slo-alert.warning {
+            background: #fff3cd;
+            border-left-color: #ffc107;
+            color: #856404;
+        }
+        
+        .slo-alert.critical {
+            background: #f8d7da;
+            border-left-color: #dc3545;
+            color: #721c24;
+        }
+        
+        .slo-alert .alert-header {
+            font-weight: bold;
+            margin-bottom: 0.25rem;
+        }
+        
+        .slo-alert .alert-message {
+            margin-bottom: 0.25rem;
+        }
+        
+        .slo-alert .alert-timestamp {
+            font-size: 0.75rem;
+            opacity: 0.7;
+        }
+        
+        /* SLO Metrics Cards */
+        .slo-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        .slo-card.violation {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        }
+        
+        .slo-card.warning {
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+        }
+        
+        .slo-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 0.25rem;
+        }
+        
+        .slo-label {
+            font-size: 0.8rem;
+            opacity: 0.9;
+        }
+        
+        .slo-threshold {
+            font-size: 0.7rem;
+            opacity: 0.7;
+            margin-top: 0.25rem;
+        }
+        
         /* Responsive */
         @media (max-width: 768px) {
             .dashboard-grid {
@@ -430,6 +502,41 @@
             </div>
         </div>
 
+        <!-- SLO/SLA Metrics -->
+        <div class="panel">
+            <h3>📊 SLO/SLA Monitoring</h3>
+            <div class="kpi-grid">
+                <div class="slo-card" id="slo-mttd">
+                    <div class="slo-value">--</div>
+                    <div class="slo-label">MTTD</div>
+                    <div class="slo-threshold">SLO: ≤ 2s</div>
+                </div>
+                <div class="slo-card" id="slo-mttr">
+                    <div class="slo-value">--</div>
+                    <div class="slo-label">MTTR</div>
+                    <div class="slo-threshold">SLO: ≤ 3s</div>
+                </div>
+                <div class="slo-card" id="slo-containment">
+                    <div class="slo-value">--</div>
+                    <div class="slo-label">Containment</div>
+                    <div class="slo-threshold">SLO: ≤ 10s</div>
+                </div>
+                <div class="slo-card" id="slo-ioc-rate">
+                    <div class="slo-value">--</div>
+                    <div class="slo-label">IOC Rate</div>
+                    <div class="slo-threshold">Flood: > 10/s</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SLO Alerts -->
+        <div class="panel">
+            <h3>🚨 SLO Alerts</h3>
+            <div id="sloAlertsContainer">
+                <p style="text-align: center; color: #6c757d;">Aucune alerte SLO</p>
+            </div>
+        </div>
+
         <!-- Main Dashboard Grid -->
         <div class="dashboard-grid">
             <!-- Network Graph -->
@@ -470,6 +577,30 @@
                 <input type="range" class="slider" id="quorumSlider" min="1" max="10" value="1">
                 <div style="text-align: center; margin-top: 0.5rem;">
                     <span id="quorumValue">1</span> nœuds requis
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label class="control-label">Mode Fail-over</label>
+                <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+                    <button id="failModeBtn" class="action-btn btn-quorum" onclick="toggleFailMode()">
+                        Mode: <span id="failModeText">fail-open</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="control-group">
+                <label class="control-label">Démonstrations</label>
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap;">
+                    <button class="action-btn btn-expire" onclick="simulateFalsePositive()">
+                        🧪 Simuler FP
+                    </button>
+                    <button class="action-btn btn-extend" onclick="simulateIOCFlood()">
+                        🌊 Simuler Flood
+                    </button>
+                    <button class="action-btn btn-quarantine" onclick="simulateNodeIsolation()">
+                        🔌 Simuler Isolation
+                    </button>
                 </div>
             </div>
         </div>
@@ -609,6 +740,87 @@
             }
         }
         
+        function updateSLOMetrics(sloMetrics) {
+            if (!sloMetrics) return;
+            
+            // Update SLO cards with values and styling
+            updateSLOCard('slo-mttd', sloMetrics.mttd, 2000, 'ms');
+            updateSLOCard('slo-mttr', sloMetrics.mttr, 3000, 'ms');
+            updateSLOCard('slo-containment', sloMetrics.containmentTime, 10, 's');
+            updateSLOCard('slo-ioc-rate', sloMetrics.iocRate, 10, '/s');
+        }
+        
+        function updateSLOCard(cardId, value, threshold, unit) {
+            const card = document.getElementById(cardId);
+            if (!card) return;
+            
+            const valueEl = card.querySelector('.slo-value');
+            if (valueEl) {
+                valueEl.textContent = Math.round(value) + unit;
+            }
+            
+            // Update card styling based on threshold
+            card.className = 'slo-card';
+            if (value > threshold) {
+                card.classList.add('violation');
+            } else if (value > threshold * 0.8) {
+                card.classList.add('warning');
+            }
+        }
+        
+        function updateSLOAlerts(sloAlerts) {
+            const container = document.getElementById('sloAlertsContainer');
+            if (!container) return;
+            
+            if (!sloAlerts || sloAlerts.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #6c757d;">Aucune alerte SLO</p>';
+                return;
+            }
+            
+            container.innerHTML = sloAlerts.map(alert => {
+                const alertClass = alert.severity === 'critical' ? 'critical' : 'warning';
+                const timestamp = new Date(alert.timestamp).toLocaleTimeString();
+                
+                return `
+                    <div class="slo-alert ${alertClass}">
+                        <div class="alert-header">${getAlertIcon(alert.type)} ${alert.type.replace('_', ' ').toUpperCase()}</div>
+                        <div class="alert-message">${alert.message}</div>
+                        <div class="alert-timestamp">${timestamp}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function getAlertIcon(alertType) {
+            const icons = {
+                'reactivity_degraded': '⚠️',
+                'containment_breach': '🚨',
+                'ioc_flood': '🌊',
+                'node_isolated': '🔌',
+                'sync_ko': '🔄',
+                'blocklist_saturation': '📦'
+            };
+            return icons[alertType] || '⚠️';
+        }
+        
+        function addSLOAlert(alert) {
+            // Add to timeline as well
+            addEvent({
+                kind: 'slo_alert',
+                type: alert.type,
+                message: alert.message,
+                severity: alert.severity,
+                timestamp: alert.timestamp
+            });
+        }
+        
+        function updateFailMode(failMode) {
+            const failModeText = document.getElementById('failModeText');
+            if (failModeText) {
+                failModeText.textContent = failMode;
+            }
+        }
+        
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -653,12 +865,20 @@
                     updateCoverage(data.payload.nodes, data.payload.activeIOCs);
                     updateHealthStatus(data.payload.nodes);
                     updateSparklines(data.payload.nodes);
+                    updateSLOMetrics(data.payload.sloMetrics);
+                    updateSLOAlerts(data.payload.sloAlerts);
                     if (data.payload.globalQuorum) {
                         updateGlobalQuorum(data.payload.globalQuorum);
+                    }
+                    if (data.payload.failMode) {
+                        updateFailMode(data.payload.failMode);
                     }
                     break;
                 case 'event':
                     addEvent(data.payload);
+                    break;
+                case 'slo_alert':
+                    addSLOAlert(data.payload);
                     break;
             }
         }
@@ -730,6 +950,8 @@
                 .attr('class', d => {
                     let className = 'node-circle';
                     if (d.health === 'under-attack') className += ' under-attack';
+                    else if (d.health === 'isolated') className += ' isolated';
+                    else if (d.health === 'drift') className += ' drift';
                     else if (d.alerts > 0) className += ' ioc-applied';
                     else if (d.drops > 10) className += ' high-drops';
                     else className += ' ok';
@@ -743,6 +965,8 @@
                 .style('stroke', '#ffc107')
                 .style('fill', d => {
                     if (d.health === 'under-attack') return '#e67e22';
+                    else if (d.health === 'isolated') return '#95a5a6';
+                    else if (d.health === 'drift') return '#9b59b6';
                     else if (d.alerts > 0) return '#3498db';
                     else if (d.drops > 10) return '#e74c3c';
                     else return '#27ae60';
@@ -766,6 +990,8 @@
                 .attr('class', d => {
                     let className = 'node-circle';
                     if (d.health === 'under-attack') className += ' under-attack';
+                    else if (d.health === 'isolated') className += ' isolated';
+                    else if (d.health === 'drift') className += ' drift';
                     else if (d.alerts > 0) className += ' ioc-applied';
                     else if (d.drops > 10) className += ' high-drops';
                     else className += ' ok';
@@ -776,6 +1002,8 @@
             nodeMerged.select('circle.ttl-ring')
                 .style('fill', d => {
                     if (d.health === 'under-attack') return '#e67e22';
+                    else if (d.health === 'isolated') return '#95a5a6';
+                    else if (d.health === 'drift') return '#9b59b6';
                     else if (d.alerts > 0) return '#3498db';
                     else if (d.drops > 10) return '#e74c3c';
                     else return '#27ae60';
@@ -944,6 +1172,12 @@
                 if (node.health === 'under-attack') {
                     nodeHealthStatus = '🔴 Sous attaque';
                     nodeHealthClass = 'under-attack';
+                } else if (node.health === 'isolated') {
+                    nodeHealthStatus = '⚫ Isolé';
+                    nodeHealthClass = 'isolated';
+                } else if (node.health === 'drift') {
+                    nodeHealthStatus = '🟣 Dérive';
+                    nodeHealthClass = 'drift';
                 } else if (node.alerts > 0) {
                     nodeHealthStatus = '🔵 IOC Appliqué';
                     nodeHealthClass = 'ioc-applied';
@@ -1149,6 +1383,41 @@
                     action: 'quarantineIOC',
                     kind: kind,
                     value: value
+                }));
+            }
+        }
+        
+        // Demo Functions
+        function simulateFalsePositive() {
+            console.log('Simulating false positive...');
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'command',
+                    action: 'simulateFalsePositive',
+                    nodeId: 'node-1'
+                }));
+            }
+        }
+        
+        function simulateIOCFlood() {
+            console.log('Simulating IOC flood...');
+            // This would trigger multiple IOC.local messages
+            // In a real implementation, you'd send multiple IOC messages
+            alert('Simulation IOC Flood - Envoi de multiples IOC.locals...');
+        }
+        
+        function simulateNodeIsolation() {
+            console.log('Simulating node isolation...');
+            // This would simulate a node going offline
+            alert('Simulation Isolation - Un nœud va être marqué comme isolé...');
+        }
+        
+        function toggleFailMode() {
+            console.log('Toggling fail mode...');
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'command',
+                    action: 'toggleFailMode'
                 }));
             }
         }

@@ -11,6 +11,15 @@ const DEFAULT_TTL = parseInt(process.env.DEFAULT_TTL_SEC || "180", 10);
 const WS_PORT = parseInt(process.env.WS_PORT || "8080", 10);
 const HTTP_PORT = parseInt(process.env.HTTP_PORT || "3000", 10);
 
+// SLO/SLA Configuration
+const SLO_MTTD_MAX = 2000; // 2s en ms
+const SLO_MTTR_MAX = 3000; // 3s en ms  
+const SLO_CONTAINMENT_MAX = 10000; // 10s en ms
+const NODE_ISOLATION_TIMEOUT = 15000; // 15s en ms
+const MAX_BLOCKLIST_ENTRIES = parseInt(process.env.MAX_BLOCKLIST_ENTRIES || "100", 10);
+const IOC_FLOOD_THRESHOLD = parseInt(process.env.IOC_FLOOD_THRESHOLD || "10", 10); // IOC/s
+const FAIL_MODE = process.env.FAIL_MODE || "fail-open"; // fail-open ou fail-closed
+
 const sc = StringCodec();
 
 type IOC = {
@@ -27,10 +36,48 @@ type NodeState = {
   id: string; 
   alerts: number; 
   drops: number; 
-  health: "ok"|"under-attack";
+  health: "ok"|"under-attack"|"isolated"|"drift";
   lastSeen: number;
   alerts_1m: number;
   drops_1m: number;
+  lastHeartbeat: number;
+  blocklistEntries: number;
+  iocAcks: Map<string, number>; // iocKey -> timestamp
+  reputation: number;
+};
+
+type SLOAlert = {
+  type: "reactivity_degraded" | "containment_breach" | "ioc_flood" | "node_isolated" | "sync_ko" | "blocklist_saturation";
+  nodeId?: string;
+  iocKey?: string;
+  timestamp: number;
+  severity: "warning" | "critical";
+  message: string;
+  metrics?: {
+    mttd?: number;
+    mttr?: number;
+    containment?: number;
+    iocRate?: number;
+  };
+};
+
+type SLOMetrics = {
+  mttd: number;
+  mttr: number;
+  containmentTime: number;
+  containmentRatio: number;
+  iocRate: number; // IOC/s
+  coverage: number;
+  sloViolations: {
+    mttd: number;
+    mttr: number;
+    containment: number;
+  };
+  consecutiveViolations: {
+    mttd: number;
+    mttr: number;
+    containment: number;
+  };
 };
 
 const state = {
@@ -48,11 +95,211 @@ const state = {
     lastDropByIOC: new Map<string, number>() // iocKey -> timestamp
   },
   nodeReputation: new Map<string, number>(), // nodeId -> score [0,1]
-  globalQuorum: QUORUM
+  globalQuorum: QUORUM,
+  
+  // SLO/SLA State
+  sloAlerts: [] as SLOAlert[],
+  sloMetrics: {
+    mttd: 0,
+    mttr: 0,
+    containmentTime: 0,
+    containmentRatio: 0,
+    iocRate: 0,
+    coverage: 0,
+    sloViolations: { mttd: 0, mttr: 0, containment: 0 },
+    consecutiveViolations: { mttd: 0, mttr: 0, containment: 0 }
+  } as SLOMetrics,
+  
+  // IOC Flood Detection
+  iocLocalCount: 0,
+  iocLocalWindow: [] as number[], // timestamps des derniers ioc.local
+  floodMode: false,
+  
+  // Containment Breach Detection
+  containmentBreaches: new Map<string, number>(), // iocKey -> breach count
+  
+  // System Health
+  controllerHealth: "healthy" as "healthy" | "degraded" | "critical",
+  failMode: FAIL_MODE as "fail-open" | "fail-closed"
 };
 
 const votes = new Map<string, Set<string>>(); // key=kind|value -> sources
 function keyOf(ioc: IOC){ return `${ioc.kind}|${ioc.value}`; }
+
+// SLO/SLA Functions
+function addSLOAlert(alert: SLOAlert) {
+  state.sloAlerts.unshift(alert);
+  if (state.sloAlerts.length > 100) {
+    state.sloAlerts.pop(); // Keep only last 100 alerts
+  }
+  
+  // Broadcast alert to WebSocket clients
+  broadcast({
+    type: "slo_alert",
+    payload: alert
+  });
+  
+  console.log(`[SLO Alert] ${alert.severity.toUpperCase()}: ${alert.message}`);
+}
+
+function checkSLOViolations() {
+  const now = Date.now();
+  const metrics = state.sloMetrics;
+  
+  // Check MTTD violation
+  if (metrics.mttd > SLO_MTTD_MAX) {
+    metrics.sloViolations.mttd++;
+    metrics.consecutiveViolations.mttd++;
+    
+    if (metrics.consecutiveViolations.mttd >= 3) {
+      addSLOAlert({
+        type: "reactivity_degraded",
+        timestamp: now,
+        severity: "critical",
+        message: `MTTD dégradé: ${Math.round(metrics.mttd)}ms (SLO: ${SLO_MTTD_MAX}ms)`,
+        metrics: { mttd: metrics.mttd }
+      });
+      metrics.consecutiveViolations.mttd = 0; // Reset counter
+    }
+  } else {
+    metrics.consecutiveViolations.mttd = 0;
+  }
+  
+  // Check MTTR violation
+  if (metrics.mttr > SLO_MTTR_MAX) {
+    metrics.sloViolations.mttr++;
+    metrics.consecutiveViolations.mttr++;
+    
+    if (metrics.consecutiveViolations.mttr >= 3) {
+      addSLOAlert({
+        type: "reactivity_degraded",
+        timestamp: now,
+        severity: "critical",
+        message: `MTTR dégradé: ${Math.round(metrics.mttr)}ms (SLO: ${SLO_MTTR_MAX}ms)`,
+        metrics: { mttr: metrics.mttr }
+      });
+      metrics.consecutiveViolations.mttr = 0;
+    }
+  } else {
+    metrics.consecutiveViolations.mttr = 0;
+  }
+  
+  // Check Containment violation
+  if (metrics.containmentTime > SLO_CONTAINMENT_MAX) {
+    metrics.sloViolations.containment++;
+    metrics.consecutiveViolations.containment++;
+    
+    if (metrics.consecutiveViolations.containment >= 3) {
+      addSLOAlert({
+        type: "reactivity_degraded",
+        timestamp: now,
+        severity: "critical",
+        message: `Containment dégradé: ${Math.round(metrics.containmentTime)}ms (SLO: ${SLO_CONTAINMENT_MAX}ms)`,
+        metrics: { containment: metrics.containmentTime }
+      });
+      metrics.consecutiveViolations.containment = 0;
+    }
+  } else {
+    metrics.consecutiveViolations.containment = 0;
+  }
+}
+
+function checkNodeIsolation() {
+  const now = Date.now();
+  
+  for (const [nodeId, node] of state.nodes) {
+    const timeSinceHeartbeat = now - node.lastHeartbeat;
+    
+    if (timeSinceHeartbeat > NODE_ISOLATION_TIMEOUT) {
+      if (node.health !== "isolated") {
+        node.health = "isolated";
+        addSLOAlert({
+          type: "node_isolated",
+          nodeId: nodeId,
+          timestamp: now,
+          severity: "critical",
+          message: `Nœud ${nodeId} isolé depuis ${Math.round(timeSinceHeartbeat/1000)}s`
+        });
+      }
+    } else if (node.health === "isolated") {
+      node.health = "ok"; // Node came back online
+    }
+  }
+}
+
+function checkIOCFlood() {
+  const now = Date.now();
+  const windowStart = now - 1000; // 1 second window
+  
+  // Clean old timestamps
+  state.iocLocalWindow = state.iocLocalWindow.filter(ts => ts > windowStart);
+  
+  const currentRate = state.iocLocalWindow.length;
+  state.sloMetrics.iocRate = currentRate;
+  
+  if (currentRate > IOC_FLOOD_THRESHOLD && !state.floodMode) {
+    state.floodMode = true;
+    state.globalQuorum = Math.min(state.globalQuorum + 1, 10); // Increase quorum
+    
+    addSLOAlert({
+      type: "ioc_flood",
+      timestamp: now,
+      severity: "warning",
+      message: `IOC flood détecté: ${currentRate} IOC/s (seuil: ${IOC_FLOOD_THRESHOLD})`,
+      metrics: { iocRate: currentRate }
+    });
+    
+    console.log(`[IOC Flood] Activation du mode flood - Quorum augmenté à ${state.globalQuorum}`);
+  } else if (currentRate <= IOC_FLOOD_THRESHOLD / 2 && state.floodMode) {
+    state.floodMode = false;
+    state.globalQuorum = Math.max(state.globalQuorum - 1, QUORUM); // Restore normal quorum
+    
+    addSLOAlert({
+      type: "ioc_flood",
+      timestamp: now,
+      severity: "warning",
+      message: `IOC flood résolu - Retour au quorum normal: ${state.globalQuorum}`,
+      metrics: { iocRate: currentRate }
+    });
+  }
+}
+
+function checkContainmentBreach(iocKey: string) {
+  const breachCount = state.containmentBreaches.get(iocKey) || 0;
+  const newBreachCount = breachCount + 1;
+  state.containmentBreaches.set(iocKey, newBreachCount);
+  
+  if (newBreachCount >= state.globalQuorum) {
+    addSLOAlert({
+      type: "containment_breach",
+      iocKey: iocKey,
+      timestamp: Date.now(),
+      severity: "critical",
+      message: `IOC ${iocKey} inefficace - ${newBreachCount} nœuds déclenchent encore des alertes`
+    });
+    
+    // Escalate: increase quorum and apply stricter policy
+    state.globalQuorum = Math.min(state.globalQuorum + 1, 10);
+    console.log(`[Containment Breach] Escalade - Quorum augmenté à ${state.globalQuorum}`);
+  }
+}
+
+function checkBlocklistSaturation(nodeId: string) {
+  const node = state.nodes.get(nodeId);
+  if (node && node.blocklistEntries >= MAX_BLOCKLIST_ENTRIES) {
+    addSLOAlert({
+      type: "blocklist_saturation",
+      nodeId: nodeId,
+      timestamp: Date.now(),
+      severity: "warning",
+      message: `Nœud ${nodeId} - Blocklist saturée (${node.blocklistEntries}/${MAX_BLOCKLIST_ENTRIES})`
+    });
+    
+    // Apply LRU: expire oldest entries
+    // This would be implemented in the node itself, but we log it here
+    console.log(`[Blocklist Saturation] Nœud ${nodeId} - Application LRU recommandée`);
+  }
+}
 
 // Fonctions pour calculer les métriques avancées
 function calculateMTTD() {
@@ -125,6 +372,21 @@ function calculateContainmentRatio() {
   }
   
   return (nodesNeverAlertedAfterIOC / totalNodes) * 100;
+}
+
+function updateSLOMetrics() {
+  // Update SLO metrics with current calculated values
+  state.sloMetrics.mttd = state.metrics.mttd;
+  state.sloMetrics.mttr = state.metrics.mttr;
+  state.sloMetrics.containmentTime = state.metrics.containmentTime;
+  state.sloMetrics.containmentRatio = state.metrics.containmentRatio;
+  
+  // Calculate coverage (nodes with active IOCs / total nodes)
+  const nodesWithIOC = Array.from(state.nodes.values()).filter(node => node.alerts > 0).length;
+  state.sloMetrics.coverage = state.nodes.size > 0 ? (nodesWithIOC / state.nodes.size) * 100 : 0;
+  
+  // Check for SLO violations
+  checkSLOViolations();
 }
 
 function updateNodeReputation(nodeId: string, isFalsePositive: boolean) {
@@ -220,6 +482,25 @@ wss.on('connection', (ws) => {
               console.log(`IOC mis en quarantaine: ${quarantineKey}`);
             }
             break;
+          case 'simulateFalsePositive':
+            // Simulate a false positive for demo purposes
+            const fpNodeId = data.nodeId || 'node-1';
+            const fpIOC = {
+              kind: 'ip' as const,
+              value: '192.168.1.100',
+              reason: 'Simulation FP',
+              source: fpNodeId,
+              confidence: 95,
+              ttl_sec: 60,
+              firstSeen: Date.now()
+            };
+            nc.publish("ioc.local", sc.encode(JSON.stringify(fpIOC)));
+            console.log(`Simulation FP déclenchée par ${fpNodeId}`);
+            break;
+          case 'toggleFailMode':
+            state.failMode = state.failMode === 'fail-open' ? 'fail-closed' : 'fail-open';
+            console.log(`Mode de fail-over changé: ${state.failMode}`);
+            break;
         }
       }
     } catch (e) {
@@ -232,7 +513,7 @@ wss.on('connection', (ws) => {
   });
 });
 
-// Nettoyage périodique des IOCs expirés et reset des métriques 1m
+// Nettoyage périodique des IOCs expirés et vérifications SLO
 setInterval(() => {
   const now = Date.now();
   
@@ -250,6 +531,13 @@ setInterval(() => {
       node.drops_1m = 0;
     }
   }
+  
+  // Vérifications SLO/SLA toutes les 5 secondes
+  if (now % 5000 < 1000) {
+    checkNodeIsolation();
+    checkIOCFlood();
+    updateSLOMetrics();
+  }
 }, 1000);
 
 // Broadcast périodique de l'état
@@ -259,6 +547,8 @@ setInterval(() => {
     alerts_1m: node.alerts_1m || 0,
     drops_1m: node.drops_1m || 0,
     lastSeen: node.lastSeen || Date.now(),
+    lastHeartbeat: node.lastHeartbeat || Date.now(),
+    blocklistEntries: node.blocklistEntries || 0,
     reputation: state.nodeReputation.get(node.id) || 0.5
   }));
   
@@ -267,6 +557,9 @@ setInterval(() => {
   state.metrics.mttr = calculateMTTR();
   state.metrics.containmentTime = calculateContainmentTime();
   state.metrics.containmentRatio = calculateContainmentRatio();
+  
+  // Update SLO metrics
+  updateSLOMetrics();
   
   broadcast({
     type: "state", 
@@ -279,7 +572,21 @@ setInterval(() => {
         containmentTime: Math.round(state.metrics.containmentTime / 1000), // en secondes
         containmentRatio: Math.round(state.metrics.containmentRatio)
       },
+      sloMetrics: {
+        mttd: Math.round(state.sloMetrics.mttd),
+        mttr: Math.round(state.sloMetrics.mttr),
+        containmentTime: Math.round(state.sloMetrics.containmentTime / 1000),
+        containmentRatio: Math.round(state.sloMetrics.containmentRatio),
+        iocRate: Math.round(state.sloMetrics.iocRate * 10) / 10,
+        coverage: Math.round(state.sloMetrics.coverage),
+        sloViolations: state.sloMetrics.sloViolations,
+        consecutiveViolations: state.sloMetrics.consecutiveViolations
+      },
+      sloAlerts: state.sloAlerts.slice(0, 10), // Last 10 alerts
       globalQuorum: state.globalQuorum,
+      floodMode: state.floodMode,
+      controllerHealth: state.controllerHealth,
+      failMode: state.failMode,
       timestamp: Date.now()
     }
   });
@@ -308,7 +615,11 @@ setInterval(() => {
           health: "ok" as const,
           lastSeen: now,
           alerts_1m: 0,
-          drops_1m: 0
+          drops_1m: 0,
+          lastHeartbeat: now,
+          blocklistEntries: 0,
+          iocAcks: new Map(),
+          reputation: 0.5
         };
         n.lastSeen = now;
         state.nodes.set(id, n);
@@ -330,7 +641,11 @@ setInterval(() => {
         health:"ok",
         lastSeen: now,
         alerts_1m: 0,
-        drops_1m: 0
+        drops_1m: 0,
+        lastHeartbeat: now,
+        blocklistEntries: 0,
+        iocAcks: new Map(),
+        reputation: 0.5
       };
       n.alerts++; 
       n.alerts_1m++;
@@ -347,6 +662,14 @@ setInterval(() => {
       if (!state.metrics.firstOffensiveEvent.has(id)) {
         state.metrics.firstOffensiveEvent.set(id, now - Math.random() * 5000); // Simulate attack start
       }
+      
+      // Check for containment breach if this alert is for an active IOC
+      if (alert.iocKey) {
+        checkContainmentBreach(alert.iocKey);
+      }
+      
+      // Check blocklist saturation
+      checkBlocklistSaturation(id);
       
       broadcast({type:"event", payload:{kind:"alert", ...alert}});
     }
@@ -365,7 +688,11 @@ setInterval(() => {
         health:"ok",
         lastSeen: now,
         alerts_1m: 0,
-        drops_1m: 0
+        drops_1m: 0,
+        lastHeartbeat: now,
+        blocklistEntries: 0,
+        iocAcks: new Map(),
+        reputation: 0.5
       };
       n.drops++; 
       n.drops_1m++;
@@ -386,6 +713,11 @@ setInterval(() => {
     callback: (_e, m)=>{
       const ioc = JSON.parse(sc.decode(m.data)) as IOC;
       const k = keyOf(ioc);
+      const now = Date.now();
+      
+      // Track IOC flood detection
+      state.iocLocalWindow.push(now);
+      
       if (!votes.has(k)) votes.set(k, new Set());
       votes.get(k)!.add(ioc.source);
       broadcast({type:"event", payload:{...ioc, eventType:"ioc.local"}});
@@ -396,7 +728,6 @@ setInterval(() => {
       
       if (weightedVotes >= requiredQuorum || votes.get(k)!.size >= QUORUM){
         const shared = { ...ioc, ttl_sec: DEFAULT_TTL };
-        const now = Date.now();
         const activeIOC = {
           ...shared,
           startTime: now,
@@ -414,6 +745,84 @@ setInterval(() => {
       }
     }
   });
+
+  // Heartbeat monitoring
+  await nc.subscribe("hb.*", {
+    callback: (_e, m) => {
+      try {
+        const heartbeat = JSON.parse(sc.decode(m.data));
+        const nodeId = heartbeat.nodeId;
+        const now = Date.now();
+        
+        const node = state.nodes.get(nodeId);
+        if (node) {
+          node.lastHeartbeat = now;
+          node.lastSeen = now;
+          
+          // Check if node was isolated and came back
+          if (node.health === "isolated") {
+            node.health = "ok";
+            addSLOAlert({
+              type: "node_isolated",
+              nodeId: nodeId,
+              timestamp: now,
+              severity: "warning",
+              message: `Nœud ${nodeId} reconnecté`
+            });
+          }
+        }
+        
+        broadcast({type:"event", payload:{kind:"heartbeat", nodeId, ts: heartbeat.ts}});
+      } catch (err) { /* ignore */ }
+    }
+  });
+
+  // IOC Acknowledgments
+  await nc.subscribe("ack.*", {
+    callback: (_e, m) => {
+      try {
+        const ack = JSON.parse(sc.decode(m.data));
+        const nodeId = ack.nodeId;
+        const iocKey = ack.iocKey;
+        const now = Date.now();
+        
+        const node = state.nodes.get(nodeId);
+        if (node) {
+          node.iocAcks.set(iocKey, now);
+          
+          // Check for sync issues - if node doesn't ack IOC shares
+          const ioc = state.activeIOCs.get(iocKey);
+          if (ioc && (now - ioc.startTime) > 10000) { // 10s timeout
+            addSLOAlert({
+              type: "sync_ko",
+              nodeId: nodeId,
+              iocKey: iocKey,
+              timestamp: now,
+              severity: "warning",
+              message: `Nœud ${nodeId} n'applique pas l'IOC ${iocKey}`
+            });
+          }
+        }
+        
+        broadcast({type:"event", payload:{kind:"ack", nodeId, iocKey, ts: ack.ts}});
+      } catch (err) { /* ignore */ }
+    }
+  });
+
+  // Controller metrics publishing
+  setInterval(() => {
+    const metrics = {
+      mttd: state.sloMetrics.mttd,
+      mttr: state.sloMetrics.mttr,
+      coverage: state.sloMetrics.coverage,
+      containmentRatio: state.sloMetrics.containmentRatio,
+      ioc_rate: state.sloMetrics.iocRate,
+      timestamp: Date.now()
+    };
+    
+    nc.publish("metrics.controller", sc.encode(JSON.stringify(metrics)));
+  }, 10000); // Every 10 seconds
+
 })().catch((e)=>{
   console.error("[controller] fatal error", e);
   process.exit(1);
