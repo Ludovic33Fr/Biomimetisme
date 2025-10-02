@@ -10,7 +10,8 @@ Démo locale multi-conteneurs (Docker) : plusieurs **nodes** (arbres) détectent
 docker compose up -d --build
 docker compose up -d --scale node=4
 ```
-- **Interface web** : http://localhost:3000 (topologie réseau + graphique mycélium)
+- **Interface web** : http://localhost:3000 (dashboard simple)
+- **Interface visuelle** : http://localhost:3000/visual (dashboard avancé avec métriques)
 - NATS monitoring : http://localhost:8222
 
 ## Injection d’un burst manuel (optionnel)

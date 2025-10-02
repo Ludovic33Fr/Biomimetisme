@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Myco-IOC Visual Dashboard</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+        
+        .header h1 {
+            color: #2c3e50;
+            font-size: 1.8rem;
+            font-weight: 300;
+        }
+        
+        .nav-tabs {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .nav-tab {
+            padding: 0.5rem 1rem;
+            background: transparent;
+            border: 2px solid #3498db;
+            color: #3498db;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+        
+        .nav-tab:hover, .nav-tab.active {
+            background: #3498db;
+            color: white;
+        }
+        
+        .container {
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .main-panel {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .side-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        
+        .panel {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .panel h3 {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+            font-weight: 500;
+        }
+        
+        /* Network Graph Styles */
+        #networkGraph {
+            width: 100%;
+            height: 500px;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            background: #fafafa;
+        }
+        
+        .node {
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .node-circle.ok { fill: #27ae60; }
+        .node-circle.under-attack { fill: #e67e22; }
+        .node-circle.ioc-applied { fill: #3498db; }
+        .node-circle.high-drops { fill: #e74c3c; }
+        
+        .node-label {
+            font-size: 12px;
+            font-weight: bold;
+            text-anchor: middle;
+            fill: white;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        
+        .ttl-ring {
+            fill: none;
+            stroke-width: 3;
+            stroke-dasharray: 5,5;
+            animation: rotate 2s linear infinite;
+        }
+        
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .edge {
+            stroke: #bdc3c7;
+            stroke-width: 2;
+            fill: none;
+        }
+        
+        .edge.pulsing {
+            stroke: #e74c3c;
+            stroke-width: 4;
+            animation: pulse 0.5s ease-in-out;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        /* Tooltip */
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 250px;
+        }
+        
+        /* KPI Cards */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .kpi-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .kpi-value {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+        
+        .kpi-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        
+        /* IOC Coverage Donut */
+        .coverage-donut {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            margin: 0 auto;
+        }
+        
+        .coverage-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        
+        /* IOC Table */
+        .ioc-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        
+        .ioc-table th,
+        .ioc-table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .ioc-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .status-badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+        
+        .status-active { background: #d4edda; color: #155724; }
+        .status-expired { background: #f8d7da; color: #721c24; }
+        .status-suspect { background: #fff3cd; color: #856404; }
+        
+        .action-btn {
+            padding: 0.25rem 0.5rem;
+            margin: 0.1rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-expire { background: #dc3545; color: white; }
+        .btn-extend { background: #ffc107; color: #212529; }
+        .btn-quorum { background: #17a2b8; color: white; }
+        .btn-quarantine { background: #6f42c1; color: white; }
+        
+        .action-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        
+        /* Timeline */
+        .timeline-container {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 1rem;
+        }
+        
+        .timeline-filters {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .filter-btn {
+            padding: 0.25rem 0.75rem;
+            border: 1px solid #dee2e6;
+            background: white;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s ease;
+        }
+        
+        .filter-btn.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        
+        .timeline-event {
+            padding: 0.5rem;
+            margin: 0.25rem 0;
+            border-left: 3px solid #dee2e6;
+            background: #f8f9fa;
+            border-radius: 0 5px 5px 0;
+        }
+        
+        .timeline-event.alert { border-left-color: #dc3545; }
+        .timeline-event.ioc-local { border-left-color: #ffc107; }
+        .timeline-event.ioc-share { border-left-color: #28a745; }
+        .timeline-event.drop { border-left-color: #17a2b8; }
+        
+        /* Sparklines */
+        .sparkline-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1rem;
+        }
+        
+        .sparkline-card {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 10px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .sparkline-title {
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            color: #495057;
+        }
+        
+        .sparkline-canvas {
+            width: 100%;
+            height: 60px;
+        }
+        
+        /* Controls */
+        .controls-panel {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+        
+        .control-group {
+            margin-bottom: 1rem;
+        }
+        
+        .control-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #495057;
+        }
+        
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #ddd;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+        }
+        
+        .health-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+        
+        .health-online { background: #28a745; }
+        .health-isolated { background: #dc3545; }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .kpi-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .container {
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🌐 Myco-IOC Visual Dashboard</h1>
+        <div class="nav-tabs">
+            <a href="/" class="nav-tab">Dashboard Simple</a>
+            <a href="/visual" class="nav-tab active">Dashboard Visuel</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- KPI Cards -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-value" id="mttd">--</div>
+                <div class="kpi-label">MTTD (ms)</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-value" id="mttr">--</div>
+                <div class="kpi-label">MTTR (ms)</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-value" id="containment-time">--</div>
+                <div class="kpi-label">Containment Time (s)</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-value" id="containment-ratio">--%</div>
+                <div class="kpi-label">Containment Ratio</div>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Network Graph -->
+            <div class="main-panel">
+                <h3>🗺️ Topologie Réseau & Mycélium</h3>
+                <svg id="networkGraph"></svg>
+            </div>
+
+            <!-- Side Panel -->
+            <div class="side-panel">
+                <!-- IOC Coverage -->
+                <div class="panel">
+                    <h3>📊 Couverture IOC</h3>
+                    <div class="coverage-donut">
+                        <canvas id="coverageChart"></canvas>
+                        <div class="coverage-text">
+                            <div id="coverage-percentage">0%</div>
+                            <div style="font-size: 0.8rem;">Couverture</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Health & Sync -->
+                <div class="panel">
+                    <h3>💓 Santé & Synchronisation</h3>
+                    <div id="healthStatus">
+                        <p>Aucun nœud connecté</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls Panel -->
+        <div class="controls-panel">
+            <h3>🎛️ Contrôles</h3>
+            <div class="control-group">
+                <label class="control-label">Quorum Global</label>
+                <input type="range" class="slider" id="quorumSlider" min="1" max="10" value="1">
+                <div style="text-align: center; margin-top: 0.5rem;">
+                    <span id="quorumValue">1</span> nœuds requis
+                </div>
+            </div>
+        </div>
+
+        <!-- IOC Table -->
+        <div class="panel">
+            <h3>🚨 Table des IOC Actifs</h3>
+            <table class="ioc-table">
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Valeur</th>
+                        <th>Première détection</th>
+                        <th>Sources</th>
+                        <th>Quorum</th>
+                        <th>TTL Restant</th>
+                        <th>Propagation</th>
+                        <th>Efficacité</th>
+                        <th>Statut</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="iocTableBody">
+                    <tr>
+                        <td colspan="10" style="text-align: center; color: #6c757d;">Aucun IOC actif</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Timeline -->
+        <div class="panel">
+            <h3>📝 Timeline d'Événements</h3>
+            <div class="timeline-filters">
+                <button class="filter-btn active" data-filter="all">Tous</button>
+                <button class="filter-btn" data-filter="alert">Alertes</button>
+                <button class="filter-btn" data-filter="ioc-local">IOC Local</button>
+                <button class="filter-btn" data-filter="ioc-share">IOC Partagé</button>
+                <button class="filter-btn" data-filter="drop">Drops</button>
+            </div>
+            <div class="timeline-container" id="timelineContainer">
+                <p style="text-align: center; color: #6c757d;">Aucun événement</p>
+            </div>
+        </div>
+
+        <!-- Sparklines -->
+        <div class="panel">
+            <h3>📈 Sparklines par Nœud</h3>
+            <div class="sparkline-container" id="sparklineContainer">
+                <p style="text-align: center; color: #6c757d;">Aucun nœud connecté</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip" style="display: none;"></div>
+
+    <script>
+        // Global state
+        let ws = null;
+        let reconnectInterval = null;
+        let nodes = new Map();
+        let iocs = new Map();
+        let events = [];
+        let sparklineData = new Map();
+        let networkGraph = null;
+        let coverageChart = null;
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeNetworkGraph();
+            initializeCoverageChart();
+            initializeControls();
+            connectWebSocket();
+        });
+        
+        function initializeNetworkGraph() {
+            const svg = d3.select('#networkGraph');
+            const width = 800;
+            const height = 500;
+            
+            svg.attr('width', width).attr('height', height);
+            
+            const simulation = d3.forceSimulation()
+                .force('link', d3.forceLink().id(d => d.id).distance(100))
+                .force('charge', d3.forceManyBody().strength(-300))
+                .force('center', d3.forceCenter(width / 2, height / 2));
+            
+            networkGraph = { svg, simulation, width, height };
+        }
+        
+        function initializeCoverageChart() {
+            const ctx = document.getElementById('coverageChart').getContext('2d');
+            coverageChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [0, 100],
+                        backgroundColor: ['#dc3545', '#e9ecef'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '70%',
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+        
+        function initializeControls() {
+            const slider = document.getElementById('quorumSlider');
+            const value = document.getElementById('quorumValue');
+            
+            slider.addEventListener('input', function() {
+                value.textContent = this.value;
+                // Send quorum update to backend via WebSocket
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: 'command',
+                        action: 'updateQuorum',
+                        value: parseInt(this.value)
+                    }));
+                }
+            });
+        }
+        
+        function updateGlobalQuorum(quorum) {
+            const slider = document.getElementById('quorumSlider');
+            const value = document.getElementById('quorumValue');
+            
+            if (slider && value) {
+                slider.value = quorum;
+                value.textContent = quorum;
+            }
+        }
+        
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                console.log('WebSocket connecté');
+                if (reconnectInterval) {
+                    clearInterval(reconnectInterval);
+                    reconnectInterval = null;
+                }
+            };
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleMessage(data);
+                } catch (e) {
+                    console.error('Erreur parsing message:', e);
+                }
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket fermé');
+                if (!reconnectInterval) {
+                    reconnectInterval = setInterval(connectWebSocket, 3000);
+                }
+            };
+            
+            ws.onerror = function(error) {
+                console.error('Erreur WebSocket:', error);
+            };
+        }
+        
+        function handleMessage(data) {
+            switch (data.type) {
+                case 'state':
+                    updateNodes(data.payload.nodes);
+                    updateIOCs(data.payload.activeIOCs);
+                    updateKPIs(data.payload);
+                    updateCoverage(data.payload.nodes, data.payload.activeIOCs);
+                    updateHealthStatus(data.payload.nodes);
+                    updateSparklines(data.payload.nodes);
+                    if (data.payload.globalQuorum) {
+                        updateGlobalQuorum(data.payload.globalQuorum);
+                    }
+                    break;
+                case 'event':
+                    addEvent(data.payload);
+                    break;
+            }
+        }
+        
+        function updateNodes(nodeData) {
+            nodes.clear();
+            nodeData.forEach(node => {
+                nodes.set(node.id, node);
+            });
+            
+            updateNetworkGraph();
+        }
+        
+        function updateNetworkGraph() {
+            if (!networkGraph) return;
+            
+            const { svg, simulation, width, height } = networkGraph;
+            const nodeArray = Array.from(nodes.values());
+            
+            // Store existing node positions to preserve them
+            const existingNodes = svg.selectAll('.node').data();
+            const positionMap = new Map();
+            existingNodes.forEach(d => {
+                if (d.x !== undefined && d.y !== undefined) {
+                    positionMap.set(d.id, { x: d.x, y: d.y, fx: d.fx, fy: d.fy });
+                }
+            });
+            
+            // Create links between nodes (simplified topology)
+            const links = [];
+            for (let i = 0; i < nodeArray.length; i++) {
+                for (let j = i + 1; j < nodeArray.length; j++) {
+                    links.push({ source: nodeArray[i].id, target: nodeArray[j].id });
+                }
+            }
+            
+            // Update links data
+            const link = svg.selectAll('.edge')
+                .data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
+            
+            // Remove old links
+            link.exit().remove();
+            
+            // Add new links
+            const linkEnter = link.enter().append('line')
+                .attr('class', 'edge');
+            
+            // Update existing links
+            link.merge(linkEnter);
+            
+            // Update nodes data
+            const node = svg.selectAll('.node')
+                .data(nodeArray, d => d.id);
+            
+            // Remove old nodes
+            node.exit().remove();
+            
+            // Add new nodes
+            const nodeEnter = node.enter().append('g')
+                .attr('class', 'node')
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended));
+            
+            // Add main circle for new nodes
+            nodeEnter.append('circle')
+                .attr('r', 20)
+                .attr('class', d => {
+                    let className = 'node-circle';
+                    if (d.health === 'under-attack') className += ' under-attack';
+                    else if (d.alerts > 0) className += ' ioc-applied';
+                    else if (d.drops > 10) className += ' high-drops';
+                    else className += ' ok';
+                    return className;
+                });
+            
+            // Add TTL rings for new nodes
+            nodeEnter.append('circle')
+                .attr('r', 25)
+                .attr('class', 'ttl-ring')
+                .style('stroke', '#ffc107')
+                .style('fill', d => {
+                    if (d.health === 'under-attack') return '#e67e22';
+                    else if (d.alerts > 0) return '#3498db';
+                    else if (d.drops > 10) return '#e74c3c';
+                    else return '#27ae60';
+                })
+                .style('opacity', d => d.alerts > 0 ? 1 : 0);
+            
+            // Add labels for new nodes
+            nodeEnter.append('text')
+                .attr('class', 'node-label')
+                .text(d => d.id);
+            
+            // Add tooltips for new nodes
+            nodeEnter.append('title')
+                .text(d => `Node: ${d.id}\nAlertes/min: ${d.alerts_1m || 0}\nDrops/min: ${d.drops_1m || 0}\nSanté: ${d.health}`);
+            
+            // Merge new and existing nodes
+            const nodeMerged = node.merge(nodeEnter);
+            
+            // Update existing nodes' main circle class
+            nodeMerged.select('circle.node-circle')
+                .attr('class', d => {
+                    let className = 'node-circle';
+                    if (d.health === 'under-attack') className += ' under-attack';
+                    else if (d.alerts > 0) className += ' ioc-applied';
+                    else if (d.drops > 10) className += ' high-drops';
+                    else className += ' ok';
+                    return className;
+                });
+            
+            // Update existing nodes' TTL rings
+            nodeMerged.select('circle.ttl-ring')
+                .style('fill', d => {
+                    if (d.health === 'under-attack') return '#e67e22';
+                    else if (d.alerts > 0) return '#3498db';
+                    else if (d.drops > 10) return '#e74c3c';
+                    else return '#27ae60';
+                })
+                .style('opacity', d => d.alerts > 0 ? 1 : 0);
+            
+            // Update existing nodes' labels
+            nodeMerged.select('text.node-label')
+                .text(d => d.id);
+            
+            // Update existing nodes' tooltips
+            nodeMerged.select('title')
+                .text(d => `Node: ${d.id}\nAlertes/min: ${d.alerts_1m || 0}\nDrops/min: ${d.drops_1m || 0}\nSanté: ${d.health}`);
+            
+            // Restore positions for existing nodes
+            nodeArray.forEach(d => {
+                const pos = positionMap.get(d.id);
+                if (pos) {
+                    d.x = pos.x;
+                    d.y = pos.y;
+                    d.fx = pos.fx;
+                    d.fy = pos.fy;
+                }
+            });
+            
+            // Update simulation only if nodes changed
+            const nodesChanged = nodeArray.length !== existingNodes.length || 
+                nodeArray.some(n => !existingNodes.find(e => e.id === n.id));
+            
+            if (nodesChanged) {
+                simulation.nodes(nodeArray);
+                simulation.force('link').links(links);
+                simulation.alpha(0.3).restart(); // Gentle restart
+            } else {
+                // Just update the links without restarting simulation
+                simulation.force('link').links(links);
+            }
+            
+            // Update positions
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+                
+                nodeMerged
+                    .attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+            
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+            
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+            
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+        }
+        
+        function updateIOCs(iocData) {
+            iocs.clear();
+            iocData.forEach(ioc => {
+                iocs.set(`${ioc.kind}|${ioc.value}`, ioc);
+            });
+            
+            updateIOCTable();
+        }
+        
+        function updateIOCTable() {
+            const tbody = document.getElementById('iocTableBody');
+            
+            if (iocs.size === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #6c757d;">Aucun IOC actif</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = Array.from(iocs.values()).map(ioc => {
+                const ttlRemaining = Math.max(0, Math.floor((ioc.endTime - Date.now()) / 1000));
+                const spread = Array.from(nodes.values()).filter(n => n.alerts > 0).length;
+                const efficiency = Math.floor(Math.random() * 100); // Placeholder
+                
+                let statusClass = 'status-active';
+                let statusText = 'Actif';
+                if (ttlRemaining === 0) {
+                    statusClass = 'status-expired';
+                    statusText = 'Expiré';
+                } else if (efficiency < 30) {
+                    statusClass = 'status-suspect';
+                    statusText = 'Suspect';
+                }
+                
+                return `
+                    <tr>
+                        <td>${ioc.kind.toUpperCase()}</td>
+                        <td>${ioc.value}</td>
+                        <td>${new Date(ioc.firstSeen).toLocaleTimeString()}</td>
+                        <td>${ioc.source || 'N/A'}</td>
+                        <td>${ioc.confidence || 'N/A'}</td>
+                        <td>${ttlRemaining}s</td>
+                        <td>${spread}/${nodes.size}</td>
+                        <td>${efficiency}%</td>
+                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                        <td>
+                            <button class="action-btn btn-expire" onclick="expireIOC('${ioc.kind}', '${ioc.value}')">Expirer</button>
+                            <button class="action-btn btn-extend" onclick="extendIOC('${ioc.kind}', '${ioc.value}')">+60s</button>
+                            <button class="action-btn btn-quorum" onclick="increaseQuorum('${ioc.kind}', '${ioc.value}')">Quorum</button>
+                            <button class="action-btn btn-quarantine" onclick="quarantineIOC('${ioc.kind}', '${ioc.value}')">Quarantaine</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+        
+        function updateKPIs(data) {
+            // Use real metrics from backend
+            const metrics = data.metrics || {};
+            
+            document.getElementById('mttd').textContent = metrics.mttd || '--';
+            document.getElementById('mttr').textContent = metrics.mttr || '--';
+            document.getElementById('containment-time').textContent = metrics.containmentTime || '--';
+            document.getElementById('containment-ratio').textContent = (metrics.containmentRatio || 0) + '%';
+        }
+        
+        function updateCoverage(nodeData, iocData) {
+            const nodesWithIOC = nodeData.filter(node => node.alerts > 0).length;
+            const totalNodes = nodeData.length;
+            const coverage = totalNodes > 0 ? (nodesWithIOC / totalNodes) * 100 : 0;
+            
+            document.getElementById('coverage-percentage').textContent = `${Math.round(coverage)}%`;
+            
+            // Update chart colors based on coverage
+            let color = '#dc3545'; // Red < 40%
+            if (coverage >= 40 && coverage <= 80) color = '#ffc107'; // Orange 40-80%
+            if (coverage > 80) color = '#28a745'; // Green > 80%
+            
+            coverageChart.data.datasets[0].data = [coverage, 100 - coverage];
+            coverageChart.data.datasets[0].backgroundColor = [color, '#e9ecef'];
+            coverageChart.update();
+        }
+        
+        function updateHealthStatus(nodeData) {
+            const container = document.getElementById('healthStatus');
+            
+            if (nodeData.length === 0) {
+                container.innerHTML = '<p>Aucun nœud connecté</p>';
+                return;
+            }
+            
+            container.innerHTML = nodeData.map(node => {
+                const isOnline = (Date.now() - node.lastSeen) < 10000; // 10s threshold
+                const healthClass = isOnline ? 'health-online' : 'health-isolated';
+                const healthText = isOnline ? 'En ligne' : 'Isolé';
+                
+                // Determine node health status (same logic as graph)
+                let nodeHealthStatus = '';
+                let nodeHealthClass = '';
+                if (node.health === 'under-attack') {
+                    nodeHealthStatus = '🔴 Sous attaque';
+                    nodeHealthClass = 'under-attack';
+                } else if (node.alerts > 0) {
+                    nodeHealthStatus = '🔵 IOC Appliqué';
+                    nodeHealthClass = 'ioc-applied';
+                } else if (node.drops > 10) {
+                    nodeHealthStatus = '🟠 Beaucoup de drops';
+                    nodeHealthClass = 'high-drops';
+                } else {
+                    nodeHealthStatus = '🟢 OK';
+                    nodeHealthClass = 'ok';
+                }
+                
+                return `
+                    <div style="margin-bottom: 0.5rem; padding: 0.5rem; border-radius: 5px; background: #f8f9fa;">
+                        <div style="display: flex; align-items: center; margin-bottom: 0.25rem;">
+                            <span class="health-indicator ${healthClass}" style="margin-right: 0.5rem;"></span>
+                            <strong>${node.id}</strong>
+                            <span style="margin-left: auto; font-size: 0.8rem;">${healthText}</span>
+                        </div>
+                        <div style="font-size: 0.9rem; margin-bottom: 0.25rem;">
+                            <span class="node ${nodeHealthClass}" style="padding: 0.2rem 0.5rem; border-radius: 3px; color: white; font-size: 0.75rem;">${nodeHealthStatus}</span>
+                        </div>
+                        <div style="font-size: 0.75rem; color: #6c757d;">
+                            <div>🚨 Alertes: ${node.alerts || 0} (${node.alerts_1m || 0}/min)</div>
+                            <div>🛡️ Drops: ${node.drops || 0} (${node.drops_1m || 0}/min)</div>
+                            <div>📊 Réputation: ${Math.round((node.reputation || 0.5) * 100)}%</div>
+                            <div>⏰ Dernière activité: ${new Date(node.lastSeen).toLocaleTimeString()}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function updateSparklines(nodeData) {
+            const container = document.getElementById('sparklineContainer');
+            
+            if (nodeData.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #6c757d;">Aucun nœud connecté</p>';
+                return;
+            }
+            
+            container.innerHTML = nodeData.map(node => {
+                const canvasId = `sparkline-${node.id}`;
+                return `
+                    <div class="sparkline-card">
+                        <div class="sparkline-title">${node.id}</div>
+                        <canvas id="${canvasId}" class="sparkline-canvas"></canvas>
+                    </div>
+                `;
+            }).join('');
+            
+            // Initialize sparklines
+            nodeData.forEach(node => {
+                const canvasId = `sparkline-${node.id}`;
+                const canvas = document.getElementById(canvasId);
+                if (canvas) {
+                    initializeSparkline(canvas, node);
+                }
+            });
+        }
+        
+        function initializeSparkline(canvas, node) {
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            // Generate sample data (in reality, you'd track historical data)
+            const data = Array.from({length: 20}, () => ({
+                alerts: Math.floor(Math.random() * 10),
+                drops: Math.floor(Math.random() * 15)
+            }));
+            
+            // Draw sparkline
+            ctx.clearRect(0, 0, width, height);
+            
+            // Draw alerts line
+            ctx.strokeStyle = '#dc3545';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            data.forEach((point, i) => {
+                const x = (i / (data.length - 1)) * width;
+                const y = height - (point.alerts / 10) * height;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+            
+            // Draw drops line
+            ctx.strokeStyle = '#28a745';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            data.forEach((point, i) => {
+                const x = (i / (data.length - 1)) * width;
+                const y = height - (point.drops / 15) * height;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+        }
+        
+        function addEvent(event) {
+            events.unshift(event);
+            if (events.length > 100) events.pop(); // Keep only last 100 events
+            
+            updateTimeline();
+        }
+        
+        function updateTimeline() {
+            const container = document.getElementById('timelineContainer');
+            const activeFilters = Array.from(document.querySelectorAll('.filter-btn.active')).map(btn => btn.dataset.filter);
+            
+            let filteredEvents = events;
+            if (!activeFilters.includes('all')) {
+                filteredEvents = events.filter(event => activeFilters.includes(event.kind));
+            }
+            
+            if (filteredEvents.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #6c757d;">Aucun événement</p>';
+                return;
+            }
+            
+            container.innerHTML = filteredEvents.map(event => {
+                let eventText = '';
+                let eventClass = 'timeline-event';
+                
+                switch (event.kind) {
+                    case 'hello':
+                        eventText = `🟢 Node ${event.nodeId} connecté`;
+                        break;
+                    case 'alert':
+                        eventText = `🚨 Alerte sur ${event.nodeId}: ${event.reason || 'Attaque détectée'}`;
+                        eventClass += ' alert';
+                        break;
+                    case 'drop':
+                        eventText = `🛡️ Blocage sur ${event.nodeId}: ${event.value || 'Trafic bloqué'}`;
+                        eventClass += ' drop';
+                        break;
+                    case 'ioc.local':
+                        eventText = `🔍 IOC local détecté: ${event.kind} ${event.value}`;
+                        eventClass += ' ioc-local';
+                        break;
+                    case 'ioc.share':
+                        eventText = `📡 IOC partagé: ${event.kind} ${event.value}`;
+                        eventClass += ' ioc-share';
+                        break;
+                    default:
+                        eventText = `📝 ${event.kind}: ${JSON.stringify(event)}`;
+                }
+                
+                return `
+                    <div class="${eventClass}">
+                        <div>${eventText}</div>
+                        <div class="timestamp">${new Date().toLocaleTimeString()}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // Event handlers
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                updateTimeline();
+            });
+        });
+        
+        // IOC Actions
+        function expireIOC(kind, value) {
+            console.log(`Expiring IOC: ${kind} ${value}`);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'command',
+                    action: 'expireIOC',
+                    kind: kind,
+                    value: value
+                }));
+            }
+        }
+        
+        function extendIOC(kind, value) {
+            console.log(`Extending IOC: ${kind} ${value}`);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'command',
+                    action: 'extendIOC',
+                    kind: kind,
+                    value: value
+                }));
+            }
+        }
+        
+        function increaseQuorum(kind, value) {
+            console.log(`Increasing quorum for: ${kind} ${value}`);
+            // This would require more complex backend logic
+            alert('Fonctionnalité en cours de développement');
+        }
+        
+        function quarantineIOC(kind, value) {
+            console.log(`Quarantining IOC: ${kind} ${value}`);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'command',
+                    action: 'quarantineIOC',
+                    kind: kind,
+                    value: value
+                }));
+            }
+        }
+    </script>
+</body>
+</html>

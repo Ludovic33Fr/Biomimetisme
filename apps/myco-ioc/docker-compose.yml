@@ -1,4 +1,3 @@
-version: "3.9"
 services:
   bus:
     image: nats:2.10
