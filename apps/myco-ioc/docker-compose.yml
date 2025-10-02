@@ -25,9 +25,9 @@ services:
       NATS_URL: nats://bus:4222
       QUORUM: "1"
       DEFAULT_TTL_SEC: "180"
-      WS_PORT: "8081"
+      HTTP_PORT: "3000"
     ports:
-      - "8081:8081"
+      - "3000:3000"  # Interface web + WebSocket
 
   traffic:
     build: ./traffic

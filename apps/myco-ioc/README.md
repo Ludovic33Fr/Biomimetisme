@@ -10,8 +10,8 @@ Démo locale multi-conteneurs (Docker) : plusieurs **nodes** (arbres) détectent
 docker compose up -d --build
 docker compose up -d --scale node=4
 ```
+- **Interface web** : http://localhost:3000 (topologie réseau + graphique mycélium)
 - NATS monitoring : http://localhost:8222
-- WebSocket du controller : ws://localhost:8080 (pour un dashboard futur)
 
 ## Injection d’un burst manuel (optionnel)
 ```bash
@@ -27,10 +27,26 @@ done
 - Le controller propage en **ioc.share** (quorum configurable) → les autres nodes **bloqunt** (TTL)
 - Les drops sont visibles dans les logs des nodes (`drops.<nodeId>`)
 
+## Interface Web
+
+L'interface web (http://localhost:3000) affiche une **topologie réseau interactive** avec :
+
+- **Nœuds** : services (node-1…n) avec couleurs selon l'état :
+  - 🟢 Vert = OK
+  - 🟠 Orange = Attaque en cours (alert locale <60s)
+  - 🔵 Bleu = IOC appliqué
+  - 🔴 Rouge = Drops élevés
+
+- **Anneaux TTL** : arcs qui décroissent jusqu'à l'expiration du dernier IOC actif
+
+- **Arêtes** : pulsation courte quand un ioc.share passe (visualiser la diffusion)
+
+- **Tooltips** : alerts_1m, drops_1m, derniers IOC appliqués, latence bus estimée
+
 ## Services
 - **bus** : NATS
 - **node** : détection locale + blocklist TTL + souscription aux IOC partagés
-- **controller** : agrégation (quorum) + propagation + WebSocket état
+- **controller** : agrégation (quorum) + propagation + WebSocket état + interface web
 - **traffic** : trafic normal + bursts réguliers
 - **natsbox** : utilitaires `nats` CLI pour tester
 
