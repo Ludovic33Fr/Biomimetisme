@@ -986,10 +986,20 @@
             if (!networkGraph) return;
             
             const { svg } = networkGraph;
+            console.log(`Looking for node element in SVG: ${nodeId}`);
+            
+            // Debug: log all existing nodes in SVG
+            const allNodes = svg.selectAll('.node');
+            console.log(`Total nodes in SVG: ${allNodes.size()}`);
+            allNodes.each(function(d) {
+                console.log(`SVG node: ${d.id}`);
+            });
+            
             const nodeElement = svg.selectAll('.node').filter(d => d.id === nodeId);
             
             if (nodeElement.empty()) {
                 console.log(`Node element not found in SVG for ${nodeId}`);
+                console.log(`Available node IDs in SVG:`, allNodes.data().map(d => d.id));
                 return;
             }
             
@@ -1630,7 +1640,7 @@
                 console.log('Test node already exists');
             }
             
-            // Test status changes
+            // Test status changes - wait longer to ensure SVG is updated
             setTimeout(() => {
                 console.log('Setting test-node to isolated...');
                 console.log('Test node exists before update:', nodes.has('test-node'));
@@ -1654,7 +1664,7 @@
                     });
                     updateNetworkGraph();
                 }
-            }, 1000);
+            }, 2000); // Increased delay
             
             setTimeout(() => {
                 console.log('Setting test-node to under-attack...');
