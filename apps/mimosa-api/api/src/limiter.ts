@@ -128,4 +128,35 @@ export class MimosaLimiter {
     .sort((a, b) => (b.tripped ? 1 : 0) - (a.tripped ? 1 : 0) || b.rps - a.rps)
     .slice(0, limit);
     }
+    
+    // Méthodes pour le dashboard
+    getCurrentRps(): number {
+        const now = nowSec();
+        let totalRps = 0;
+        let count = 0;
+        
+        for (const [ip, st] of this.states) {
+            this.rollBuckets(st, now);
+            const rps = this.computeRps(st);
+            totalRps += rps;
+            count++;
+        }
+        
+        return count > 0 ? totalRps / count : 0;
+    }
+    
+    getCurrentDiversity(): number {
+        const now = nowSec();
+        let totalDiversity = 0;
+        let count = 0;
+        
+        for (const [ip, st] of this.states) {
+            this.rollBuckets(st, now);
+            const currentDiversity = st.pathsBySec.get(now)?.size ?? 0;
+            totalDiversity += currentDiversity;
+            count++;
+        }
+        
+        return count > 0 ? totalDiversity / count : 0;
+    }
 }

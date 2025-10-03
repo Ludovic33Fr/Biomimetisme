@@ -228,20 +228,22 @@ io.on('connection', (socket) => {
     console.log('📱 Client dashboard connecté:', socket.id);
     
     // Envoyer les métriques actuelles
+    const tripStatus = limiter.isTripped('dashboard');
     socket.emit('metrics', {
         rps: limiter.getCurrentRps(),
         diversity: limiter.getCurrentDiversity(),
-        tripped: limiter.isTripped('dashboard'),
-        ttl: 0
+        tripped: tripStatus.tripped,
+        ttl: tripStatus.ttlMs
     });
     
     // Gestion des demandes de métriques
     socket.on('get_metrics', () => {
+        const tripStatus = limiter.isTripped('dashboard');
         socket.emit('metrics', {
             rps: limiter.getCurrentRps(),
             diversity: limiter.getCurrentDiversity(),
-            tripped: limiter.isTripped('dashboard'),
-            ttl: 0
+            tripped: tripStatus.tripped,
+            ttl: tripStatus.ttlMs
         });
     });
     
@@ -252,13 +254,15 @@ io.on('connection', (socket) => {
 
 // Fonction pour diffuser les métriques à tous les clients connectés
 function broadcastMetrics() {
+    const tripStatus = limiter.isTripped('dashboard');
     const metrics = {
         rps: limiter.getCurrentRps(),
         diversity: limiter.getCurrentDiversity(),
-        tripped: limiter.isTripped('dashboard'),
-        ttl: 0
+        tripped: tripStatus.tripped,
+        ttl: tripStatus.ttlMs
     };
     
+    console.log('📊 Diffusion métriques:', metrics);
     io.emit('metrics', metrics);
 }
 
