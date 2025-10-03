@@ -432,6 +432,17 @@ const httpServer = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(data);
     });
+  } else if (req.url === '/test-timeline') {
+    const filePath = path.join(__dirname, '../public/test-timeline.html');
+    fs.readFile(filePath, (err, data) => {
+      if (err) {
+        res.writeHead(404);
+        res.end('File not found');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(data);
+    });
   } else {
     res.writeHead(404);
     res.end('Not found');
@@ -446,6 +457,8 @@ function broadcast(obj:any){
 }
 
 // Handle WebSocket connections and commands
+let natsConnection: any = null; // Store NATS connection globally
+
 wss.on('connection', (ws) => {
   console.log('Client WebSocket connecté');
   
@@ -494,8 +507,52 @@ wss.on('connection', (ws) => {
               ttl_sec: 60,
               firstSeen: Date.now()
             };
-            nc.publish("ioc.local", sc.encode(JSON.stringify(fpIOC)));
-            console.log(`Simulation FP déclenchée par ${fpNodeId}`);
+            if (natsConnection) {
+              natsConnection.publish("ioc.local", sc.encode(JSON.stringify(fpIOC)));
+              console.log(`Simulation FP déclenchée par ${fpNodeId}`);
+            } else {
+              console.log('NATS connection not available for simulation');
+            }
+            break;
+          case 'simulateIOCFlood':
+            // Simulate multiple IOC.local events for flood detection
+            const floodNodeId = 'node-flood';
+            for (let i = 0; i < 15; i++) {
+              const floodIOC = {
+                kind: 'ip' as const,
+                value: `192.168.1.${100 + i}`,
+                reason: 'Simulation Flood',
+                source: floodNodeId,
+                confidence: 80,
+                ttl_sec: 30,
+                firstSeen: Date.now()
+              };
+              if (natsConnection) {
+                natsConnection.publish("ioc.local", sc.encode(JSON.stringify(floodIOC)));
+              }
+            }
+            console.log('Simulation IOC Flood déclenchée');
+            break;
+          case 'simulateNodeIsolation':
+            // Simulate a node going offline
+            const isolatedNodeId = 'node-isolated';
+            const isolatedNode = state.nodes.get(isolatedNodeId) || {
+              id: isolatedNodeId,
+              alerts: 0,
+              drops: 0,
+              health: "ok" as const,
+              lastSeen: Date.now(),
+              alerts_1m: 0,
+              drops_1m: 0,
+              lastHeartbeat: Date.now() - 20000, // 20s ago
+              blocklistEntries: 0,
+              iocAcks: new Map(),
+              reputation: 0.5
+            };
+            isolatedNode.health = "isolated";
+            state.nodes.set(isolatedNodeId, isolatedNode);
+            broadcast({type:"event", payload:{kind:"node_isolated", nodeId: isolatedNodeId, reason: "Simulation isolation"}});
+            console.log(`Simulation isolation déclenchée pour ${isolatedNodeId}`);
             break;
           case 'toggleFailMode':
             state.failMode = state.failMode === 'fail-open' ? 'fail-closed' : 'fail-open';
@@ -594,11 +651,21 @@ setInterval(() => {
 
 (async()=>{
   const nc = await connect({ servers: NATS_URL });
+  natsConnection = nc; // Store connection globally for WebSocket commands
   console.log(`[controller] connected to ${NATS_URL}, HTTP on ${HTTP_PORT}, WS on /ws`);
   
   // Démarrer le serveur HTTP
   httpServer.listen(HTTP_PORT, () => {
     console.log(`[controller] HTTP server running on port ${HTTP_PORT}`);
+    
+    // Add some demo events for testing
+    setTimeout(() => {
+      broadcast({type:"event", payload:{kind:"hello", nodeId:"demo-node-1", ts: Date.now()}});
+      broadcast({type:"event", payload:{kind:"alert", nodeId:"demo-node-1", reason:"Test attack detected", ts: Date.now()}});
+      broadcast({type:"event", payload:{kind:"ioc.local", iocKind:"ip", value:"192.168.1.50", source:"demo-node-1", reason:"Test IOC", ts: Date.now()}});
+      broadcast({type:"event", payload:{kind:"ioc.share", iocKind:"ip", value:"192.168.1.50", source:"demo-node-1", reason:"Test IOC shared", ts: Date.now()}});
+      broadcast({type:"event", payload:{kind:"drop", nodeId:"demo-node-1", value:"192.168.1.50", ts: Date.now()}});
+    }, 2000);
   });
 
   // Découverte des nodes
@@ -720,7 +787,7 @@ setInterval(() => {
       
       if (!votes.has(k)) votes.set(k, new Set());
       votes.get(k)!.add(ioc.source);
-      broadcast({type:"event", payload:{...ioc, eventType:"ioc.local"}});
+        broadcast({type:"event", payload:{kind:"ioc.local", iocKind: ioc.kind, value: ioc.value, reason: ioc.reason, source: ioc.source, confidence: ioc.confidence, ttl_sec: ioc.ttl_sec, firstSeen: ioc.firstSeen}});
 
       // Use weighted quorum based on reputation
       const weightedVotes = calculateWeightedQuorum(ioc);
@@ -741,7 +808,7 @@ setInterval(() => {
         }
         
         nc.publish("ioc.share", sc.encode(JSON.stringify(shared)));
-        broadcast({type:"event", payload:{...shared, eventType:"ioc.share"}});
+        broadcast({type:"event", payload:{kind:"ioc.share", iocKind: shared.kind, value: shared.value, reason: shared.reason, source: shared.source, confidence: shared.confidence, ttl_sec: shared.ttl_sec, firstSeen: shared.firstSeen}});
       }
     }
   });

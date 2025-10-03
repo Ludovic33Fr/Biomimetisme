@@ -89,6 +89,7 @@
             border-radius: 15px;
             padding: 1.5rem;
             box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
         }
         
         .panel h3 {
@@ -118,6 +119,14 @@
         .node-circle.high-drops { fill: #e74c3c; }
         .node-circle.isolated { fill: #95a5a6; }
         .node-circle.drift { fill: #9b59b6; }
+        
+        /* Health status badges */
+        .health-status.ok { background: #27ae60; color: white; }
+        .health-status.under-attack { background: #e67e22; color: white; }
+        .health-status.ioc-applied { background: #3498db; color: white; }
+        .health-status.high-drops { background: #e74c3c; color: white; }
+        .health-status.isolated { background: #95a5a6; color: white; }
+        .health-status.drift { background: #9b59b6; color: white; }
         
         .node-label {
             font-size: 12px;
@@ -387,6 +396,14 @@
         .health-isolated { background: #dc3545; }
         
         /* SLO Alert Styles */
+        .slo-alerts-container {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 1rem;
+        }
+        
         .slo-alert {
             padding: 0.75rem;
             margin: 0.5rem 0;
@@ -532,7 +549,7 @@
         <!-- SLO Alerts -->
         <div class="panel">
             <h3>🚨 SLO Alerts</h3>
-            <div id="sloAlertsContainer">
+            <div class="slo-alerts-container" id="sloAlertsContainer">
                 <p style="text-align: center; color: #6c757d;">Aucune alerte SLO</p>
             </div>
         </div>
@@ -674,6 +691,15 @@
             initializeCoverageChart();
             initializeControls();
             connectWebSocket();
+            
+            // Add some demo events for testing
+            setTimeout(() => {
+                addEvent({kind:"hello", nodeId:"demo-node-1", ts: Date.now()});
+                addEvent({kind:"alert", nodeId:"demo-node-1", reason:"Test attack detected", ts: Date.now()});
+                addEvent({kind:"ioc.local", iocKind:"ip", value:"192.168.1.50", source:"demo-node-1", reason:"Test IOC", ts: Date.now()});
+                addEvent({kind:"ioc.share", iocKind:"ip", value:"192.168.1.50", source:"demo-node-1", reason:"Test IOC shared", ts: Date.now()});
+                addEvent({kind:"drop", nodeId:"demo-node-1", value:"192.168.1.50", ts: Date.now()});
+            }, 3000);
         });
         
         function initializeNetworkGraph() {
@@ -1197,7 +1223,7 @@
                             <span style="margin-left: auto; font-size: 0.8rem;">${healthText}</span>
                         </div>
                         <div style="font-size: 0.9rem; margin-bottom: 0.25rem;">
-                            <span class="node ${nodeHealthClass}" style="padding: 0.2rem 0.5rem; border-radius: 3px; color: white; font-size: 0.75rem;">${nodeHealthStatus}</span>
+                            <span class="health-status ${nodeHealthClass}" style="padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.75rem; font-weight: bold;">${nodeHealthStatus}</span>
                         </div>
                         <div style="font-size: 0.75rem; color: #6c757d;">
                             <div>🚨 Alertes: ${node.alerts || 0} (${node.alerts_1m || 0}/min)</div>
@@ -1290,7 +1316,13 @@
             
             let filteredEvents = events;
             if (!activeFilters.includes('all')) {
-                filteredEvents = events.filter(event => activeFilters.includes(event.kind));
+                filteredEvents = events.filter(event => {
+                    // Map event types to filter names
+                    const eventType = event.kind || event.eventType;
+                    if (eventType === 'ioc.local') return activeFilters.includes('ioc-local');
+                    if (eventType === 'ioc.share') return activeFilters.includes('ioc-share');
+                    return activeFilters.includes(eventType);
+                });
             }
             
             if (filteredEvents.length === 0) {
@@ -1301,8 +1333,9 @@
             container.innerHTML = filteredEvents.map(event => {
                 let eventText = '';
                 let eventClass = 'timeline-event';
+                const eventType = event.kind || event.eventType;
                 
-                switch (event.kind) {
+                switch (eventType) {
                     case 'hello':
                         eventText = `🟢 Node ${event.nodeId} connecté`;
                         break;
@@ -1315,21 +1348,31 @@
                         eventClass += ' drop';
                         break;
                     case 'ioc.local':
-                        eventText = `🔍 IOC local détecté: ${event.kind} ${event.value}`;
+                        eventText = `🔍 IOC local détecté: ${event.iocKind || event.kind} ${event.value}`;
                         eventClass += ' ioc-local';
                         break;
                     case 'ioc.share':
-                        eventText = `📡 IOC partagé: ${event.kind} ${event.value}`;
+                        eventText = `📡 IOC partagé: ${event.iocKind || event.kind} ${event.value}`;
                         eventClass += ' ioc-share';
                         break;
+                    case 'heartbeat':
+                        eventText = `💓 Heartbeat de ${event.nodeId}`;
+                        break;
+                    case 'ack':
+                        eventText = `✅ ACK de ${event.nodeId} pour ${event.iocKey}`;
+                        break;
+                    case 'slo_alert':
+                        eventText = `🚨 SLO Alert: ${event.message}`;
+                        eventClass += ' alert';
+                        break;
                     default:
-                        eventText = `📝 ${event.kind}: ${JSON.stringify(event)}`;
+                        eventText = `📝 ${eventType}: ${JSON.stringify(event)}`;
                 }
                 
                 return `
                     <div class="${eventClass}">
                         <div>${eventText}</div>
-                        <div class="timestamp">${new Date().toLocaleTimeString()}</div>
+                        <div class="timestamp">${new Date(event.timestamp || event.ts || Date.now()).toLocaleTimeString()}</div>
                     </div>
                 `;
             }).join('');
