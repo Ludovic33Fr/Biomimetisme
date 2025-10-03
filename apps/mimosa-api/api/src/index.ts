@@ -262,8 +262,12 @@ function broadcastMetrics() {
         ttl: tripStatus.ttlMs
     };
     
+    // Récupérer les données des IPs
+    const ipData = limiter.snapshot(20);
+    
     console.log('📊 Diffusion métriques:', metrics);
     io.emit('metrics', metrics);
+    io.emit('ip-data', ipData);
 }
 
 // Diffuser les métriques toutes les 2 secondes
