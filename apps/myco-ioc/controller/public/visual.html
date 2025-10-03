@@ -618,6 +618,9 @@
                     <button class="action-btn btn-quarantine" onclick="simulateNodeIsolation()">
                         🔌 Simuler Isolation
                     </button>
+                    <button class="action-btn btn-extend" onclick="testNodeStatusUpdate()">
+                        🧪 Test Status
+                    </button>
                 </div>
             </div>
         </div>
@@ -951,16 +954,22 @@
         function updateNodeStatus(nodeId, updates) {
             const node = nodes.get(nodeId);
             if (node) {
+                console.log(`Updating node ${nodeId}:`, updates);
                 Object.assign(node, updates);
+                console.log(`Node ${nodeId} new status:`, node);
                 updateNetworkGraph();
+            } else {
+                console.log(`Node ${nodeId} not found in nodes map`);
             }
         }
         
         function updateNetworkGraph() {
             if (!networkGraph) return;
             
+            console.log('Updating network graph...');
             const { svg, simulation, width, height } = networkGraph;
             const nodeArray = Array.from(nodes.values());
+            console.log('Nodes to update:', nodeArray.map(n => ({ id: n.id, health: n.health })));
             
             // Store existing node positions to preserve them
             const existingNodes = svg.selectAll('.node').data();
@@ -1059,6 +1068,7 @@
                     else if (d.alerts > 0) className += ' ioc-applied';
                     else if (d.drops > 10) className += ' high-drops';
                     else className += ' ok';
+                    console.log(`Node ${d.id} class: ${className}`);
                     return className;
                 });
             
@@ -1093,18 +1103,10 @@
                 }
             });
             
-            // Update simulation only if nodes changed
-            const nodesChanged = nodeArray.length !== existingNodes.length || 
-                nodeArray.some(n => !existingNodes.find(e => e.id === n.id));
-            
-            if (nodesChanged) {
-                simulation.nodes(nodeArray);
-                simulation.force('link').links(links);
-                simulation.alpha(0.3).restart(); // Gentle restart
-            } else {
-                // Just update the links without restarting simulation
-                simulation.force('link').links(links);
-            }
+            // Always update simulation data and restart gently
+            simulation.nodes(nodeArray);
+            simulation.force('link').links(links);
+            simulation.alpha(0.1).restart(); // Gentle restart to update positions
             
             // Update positions
             simulation.on('tick', () => {
@@ -1541,6 +1543,44 @@
                     action: 'toggleFailMode'
                 }));
             }
+        }
+        
+        function testNodeStatusUpdate() {
+            console.log('Testing node status update...');
+            
+            // Create a test node if it doesn't exist
+            if (!nodes.has('test-node')) {
+                nodes.set('test-node', {
+                    id: 'test-node',
+                    alerts: 0,
+                    drops: 0,
+                    health: 'ok',
+                    lastSeen: Date.now(),
+                    alerts_1m: 0,
+                    drops_1m: 0,
+                    lastHeartbeat: Date.now(),
+                    blocklistEntries: 0,
+                    iocAcks: new Map(),
+                    reputation: 0.5
+                });
+                updateNetworkGraph();
+            }
+            
+            // Test status changes
+            setTimeout(() => {
+                console.log('Setting test-node to isolated...');
+                updateNodeStatus('test-node', { health: 'isolated' });
+            }, 1000);
+            
+            setTimeout(() => {
+                console.log('Setting test-node to under-attack...');
+                updateNodeStatus('test-node', { health: 'under-attack', alerts: 5 });
+            }, 3000);
+            
+            setTimeout(() => {
+                console.log('Setting test-node back to ok...');
+                updateNodeStatus('test-node', { health: 'ok', alerts: 0 });
+            }, 5000);
         }
     </script>
 </body>
