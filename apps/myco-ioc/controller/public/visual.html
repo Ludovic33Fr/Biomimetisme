@@ -943,10 +943,23 @@
         }
         
         function updateNodes(nodeData) {
+            // Preserve test nodes that start with 'test-'
+            const testNodes = new Map();
+            for (const [id, node] of nodes) {
+                if (id.startsWith('test-')) {
+                    testNodes.set(id, node);
+                }
+            }
+            
             nodes.clear();
             nodeData.forEach(node => {
                 nodes.set(node.id, node);
             });
+            
+            // Restore test nodes
+            for (const [id, node] of testNodes) {
+                nodes.set(id, node);
+            }
             
             updateNetworkGraph();
         }
@@ -1547,9 +1560,11 @@
         
         function testNodeStatusUpdate() {
             console.log('Testing node status update...');
+            console.log('Current nodes:', Array.from(nodes.keys()));
             
             // Create a test node if it doesn't exist
             if (!nodes.has('test-node')) {
+                console.log('Creating test-node...');
                 nodes.set('test-node', {
                     id: 'test-node',
                     alerts: 0,
@@ -1564,21 +1579,27 @@
                     reputation: 0.5
                 });
                 updateNetworkGraph();
+                console.log('Test node created, current nodes:', Array.from(nodes.keys()));
+            } else {
+                console.log('Test node already exists');
             }
             
             // Test status changes
             setTimeout(() => {
                 console.log('Setting test-node to isolated...');
+                console.log('Test node exists before update:', nodes.has('test-node'));
                 updateNodeStatus('test-node', { health: 'isolated' });
             }, 1000);
             
             setTimeout(() => {
                 console.log('Setting test-node to under-attack...');
+                console.log('Test node exists before update:', nodes.has('test-node'));
                 updateNodeStatus('test-node', { health: 'under-attack', alerts: 5 });
             }, 3000);
             
             setTimeout(() => {
                 console.log('Setting test-node back to ok...');
+                console.log('Test node exists before update:', nodes.has('test-node'));
                 updateNodeStatus('test-node', { health: 'ok', alerts: 0 });
             }, 5000);
         }
