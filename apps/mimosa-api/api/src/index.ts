@@ -150,12 +150,12 @@ app.get('/api/config', (_req, res) => {
 
 // Route pour la page d'accueil
 app.get('/', (req, res) => {
-    res.sendFile('index.html', { root: './src' });
+    res.sendFile('index.html', { root: './public' });
 });
 
 // Route pour la page de réservation PlayStation 5
 app.get('/ps5', (req, res) => {
-    res.sendFile('ps5-reservation.html', { root: './src' });
+    res.sendFile('ps5-reservation.html', { root: './public' });
 });
 
 // Endpoint de réservation PlayStation 5 avec limitation spécifique
