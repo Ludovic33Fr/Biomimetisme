@@ -948,6 +948,7 @@
             for (const [id, node] of nodes) {
                 if (id.startsWith('test-')) {
                     testNodes.set(id, node);
+                    console.log(`Preserving test node: ${id}`);
                 }
             }
             
@@ -959,8 +960,10 @@
             // Restore test nodes
             for (const [id, node] of testNodes) {
                 nodes.set(id, node);
+                console.log(`Restored test node: ${id}`);
             }
             
+            console.log(`After updateNodes, total nodes: ${nodes.size}`);
             updateNetworkGraph();
         }
         
@@ -971,9 +974,52 @@
                 Object.assign(node, updates);
                 console.log(`Node ${nodeId} new status:`, node);
                 updateNetworkGraph();
+                
+                // Force immediate visual update for this specific node
+                forceNodeVisualUpdate(nodeId, node);
             } else {
                 console.log(`Node ${nodeId} not found in nodes map`);
             }
+        }
+        
+        function forceNodeVisualUpdate(nodeId, node) {
+            if (!networkGraph) return;
+            
+            const { svg } = networkGraph;
+            const nodeElement = svg.selectAll('.node').filter(d => d.id === nodeId);
+            
+            if (nodeElement.empty()) {
+                console.log(`Node element not found in SVG for ${nodeId}`);
+                return;
+            }
+            
+            console.log(`Force updating visual for node ${nodeId}`);
+            
+            // Update main circle class
+            nodeElement.select('circle.node-circle')
+                .attr('class', d => {
+                    let className = 'node-circle';
+                    if (d.health === 'under-attack') className += ' under-attack';
+                    else if (d.health === 'isolated') className += ' isolated';
+                    else if (d.health === 'drift') className += ' drift';
+                    else if (d.alerts > 0) className += ' ioc-applied';
+                    else if (d.drops > 10) className += ' high-drops';
+                    else className += ' ok';
+                    console.log(`Force updated node ${d.id} class: ${className}`);
+                    return className;
+                });
+            
+            // Update TTL ring
+            nodeElement.select('circle.ttl-ring')
+                .style('fill', d => {
+                    if (d.health === 'under-attack') return '#e67e22';
+                    else if (d.health === 'isolated') return '#95a5a6';
+                    else if (d.health === 'drift') return '#9b59b6';
+                    else if (d.alerts > 0) return '#3498db';
+                    else if (d.drops > 10) return '#e74c3c';
+                    else return '#27ae60';
+                })
+                .style('opacity', d => d.alerts > 0 ? 1 : 0);
         }
         
         function updateNetworkGraph() {
@@ -1588,19 +1634,46 @@
             setTimeout(() => {
                 console.log('Setting test-node to isolated...');
                 console.log('Test node exists before update:', nodes.has('test-node'));
-                updateNodeStatus('test-node', { health: 'isolated' });
+                if (nodes.has('test-node')) {
+                    updateNodeStatus('test-node', { health: 'isolated' });
+                } else {
+                    console.error('Test node not found! Recreating...');
+                    // Recreate the test node
+                    nodes.set('test-node', {
+                        id: 'test-node',
+                        alerts: 0,
+                        drops: 0,
+                        health: 'isolated',
+                        lastSeen: Date.now(),
+                        alerts_1m: 0,
+                        drops_1m: 0,
+                        lastHeartbeat: Date.now(),
+                        blocklistEntries: 0,
+                        iocAcks: new Map(),
+                        reputation: 0.5
+                    });
+                    updateNetworkGraph();
+                }
             }, 1000);
             
             setTimeout(() => {
                 console.log('Setting test-node to under-attack...');
                 console.log('Test node exists before update:', nodes.has('test-node'));
-                updateNodeStatus('test-node', { health: 'under-attack', alerts: 5 });
+                if (nodes.has('test-node')) {
+                    updateNodeStatus('test-node', { health: 'under-attack', alerts: 5 });
+                } else {
+                    console.error('Test node not found!');
+                }
             }, 3000);
             
             setTimeout(() => {
                 console.log('Setting test-node back to ok...');
                 console.log('Test node exists before update:', nodes.has('test-node'));
-                updateNodeStatus('test-node', { health: 'ok', alerts: 0 });
+                if (nodes.has('test-node')) {
+                    updateNodeStatus('test-node', { health: 'ok', alerts: 0 });
+                } else {
+                    console.error('Test node not found!');
+                }
             }, 5000);
         }
     </script>
