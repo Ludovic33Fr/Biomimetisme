@@ -700,7 +700,37 @@
                 addEvent({kind:"ioc.share", iocKind:"ip", value:"192.168.1.50", source:"demo-node-1", reason:"Test IOC shared", ts: Date.now()});
                 addEvent({kind:"drop", nodeId:"demo-node-1", value:"192.168.1.50", ts: Date.now()});
             }, 3000);
+            
+            // Check for isolated nodes every 5 seconds
+            setInterval(checkNodeIsolation, 5000);
         });
+        
+        function checkNodeIsolation() {
+            const now = Date.now();
+            const isolationTimeout = 15000; // 15 seconds
+            
+            for (const [nodeId, node] of nodes) {
+                const timeSinceHeartbeat = now - (node.lastHeartbeat || node.lastSeen || 0);
+                
+                if (timeSinceHeartbeat > isolationTimeout && node.health !== 'isolated') {
+                    updateNodeStatus(nodeId, { health: 'isolated' });
+                    addEvent({
+                        kind: 'node_isolated',
+                        nodeId: nodeId,
+                        reason: 'No heartbeat for ' + Math.round(timeSinceHeartbeat/1000) + 's',
+                        ts: now
+                    });
+                } else if (timeSinceHeartbeat <= isolationTimeout && node.health === 'isolated') {
+                    updateNodeStatus(nodeId, { health: 'ok' });
+                    addEvent({
+                        kind: 'node_reconnected',
+                        nodeId: nodeId,
+                        reason: 'Heartbeat restored',
+                        ts: now
+                    });
+                }
+            }
+        }
         
         function initializeNetworkGraph() {
             const svg = d3.select('#networkGraph');
@@ -916,6 +946,14 @@
             });
             
             updateNetworkGraph();
+        }
+        
+        function updateNodeStatus(nodeId, updates) {
+            const node = nodes.get(nodeId);
+            if (node) {
+                Object.assign(node, updates);
+                updateNetworkGraph();
+            }
         }
         
         function updateNetworkGraph() {
@@ -1307,6 +1345,39 @@
             events.unshift(event);
             if (events.length > 100) events.pop(); // Keep only last 100 events
             
+            // Update node status based on event type
+            if (event.nodeId) {
+                switch (event.kind) {
+                    case 'hello':
+                        updateNodeStatus(event.nodeId, { 
+                            health: 'ok', 
+                            lastSeen: event.ts || Date.now(),
+                            lastHeartbeat: event.ts || Date.now()
+                        });
+                        break;
+                    case 'alert':
+                        updateNodeStatus(event.nodeId, { 
+                            health: 'under-attack',
+                            alerts: (nodes.get(event.nodeId)?.alerts || 0) + 1,
+                            lastSeen: event.ts || Date.now()
+                        });
+                        break;
+                    case 'drop':
+                        updateNodeStatus(event.nodeId, { 
+                            drops: (nodes.get(event.nodeId)?.drops || 0) + 1,
+                            lastSeen: event.ts || Date.now()
+                        });
+                        break;
+                    case 'heartbeat':
+                        updateNodeStatus(event.nodeId, { 
+                            lastHeartbeat: event.ts || Date.now(),
+                            lastSeen: event.ts || Date.now(),
+                            health: 'ok' // Node is alive if sending heartbeat
+                        });
+                        break;
+                }
+            }
+            
             updateTimeline();
         }
         
@@ -1364,6 +1435,13 @@
                     case 'slo_alert':
                         eventText = `🚨 SLO Alert: ${event.message}`;
                         eventClass += ' alert';
+                        break;
+                    case 'node_isolated':
+                        eventText = `🔌 Nœud ${event.nodeId} isolé: ${event.reason || 'Pas de heartbeat'}`;
+                        eventClass += ' alert';
+                        break;
+                    case 'node_reconnected':
+                        eventText = `🟢 Nœud ${event.nodeId} reconnecté: ${event.reason || 'Heartbeat restauré'}`;
                         break;
                     default:
                         eventText = `📝 ${eventType}: ${JSON.stringify(event)}`;
