@@ -223,6 +223,47 @@ app.post('/api/reserve-ps5', (req, res) => {
 // Fichiers statiques (dashboard)
 app.use('/', express.static('public'));
 
+// Gestion des connexions Socket.IO pour le dashboard
+io.on('connection', (socket) => {
+    console.log('📱 Client dashboard connecté:', socket.id);
+    
+    // Envoyer les métriques actuelles
+    socket.emit('metrics', {
+        rps: limiter.getCurrentRps(),
+        diversity: limiter.getCurrentDiversity(),
+        tripped: limiter.isTripped('dashboard'),
+        ttl: 0
+    });
+    
+    // Gestion des demandes de métriques
+    socket.on('get_metrics', () => {
+        socket.emit('metrics', {
+            rps: limiter.getCurrentRps(),
+            diversity: limiter.getCurrentDiversity(),
+            tripped: limiter.isTripped('dashboard'),
+            ttl: 0
+        });
+    });
+    
+    socket.on('disconnect', () => {
+        console.log('📱 Client dashboard déconnecté:', socket.id);
+    });
+});
+
+// Fonction pour diffuser les métriques à tous les clients connectés
+function broadcastMetrics() {
+    const metrics = {
+        rps: limiter.getCurrentRps(),
+        diversity: limiter.getCurrentDiversity(),
+        tripped: limiter.isTripped('dashboard'),
+        ttl: 0
+    };
+    
+    io.emit('metrics', metrics);
+}
+
+// Diffuser les métriques toutes les 2 secondes
+setInterval(broadcastMetrics, 2000);
 
 server.listen(PORT, () => {
     console.log(`Mimosa API en écoute sur http://localhost:${PORT}`);
