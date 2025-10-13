@@ -11,6 +11,10 @@ const DEFAULT_TTL = parseInt(process.env.DEFAULT_TTL_SEC || "180", 10);
 const WS_PORT = parseInt(process.env.WS_PORT || "8080", 10);
 const HTTP_PORT = parseInt(process.env.HTTP_PORT || "3000", 10);
 
+// Version du système - s'incrémente à chaque modification majeure
+const SYSTEM_VERSION = "2.3.1";
+const BUILD_TIMESTAMP = new Date().toISOString();
+
 // SLO/SLA Configuration
 const SLO_MTTD_MAX = 2000; // 2s en ms
 const SLO_MTTR_MAX = 3000; // 3s en ms  
@@ -36,7 +40,7 @@ type NodeState = {
   id: string; 
   alerts: number; 
   drops: number; 
-  health: "ok"|"under-attack"|"isolated"|"drift";
+  health: "ok"|"protected"|"isolated"|"drift";
   lastSeen: number;
   alerts_1m: number;
   drops_1m: number;
@@ -451,6 +455,74 @@ const httpServer = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: httpServer });
 
+function handleTrafficControl(command: string) {
+  console.log(`[Traffic Control] Commande reçue: ${command}`);
+  
+  switch (command) {
+    case 'stop':
+      // Arrêter le trafic en publiant un message de contrôle
+      if (natsConnection) {
+        natsConnection.publish("traffic.control", sc.encode(JSON.stringify({
+          action: 'stop',
+          timestamp: Date.now()
+        })));
+        console.log('[Traffic Control] Trafic arrêté');
+      }
+      break;
+      
+    case 'low':
+      // Trafic faible (1 requête toutes les 2 secondes)
+      if (natsConnection) {
+        natsConnection.publish("traffic.control", sc.encode(JSON.stringify({
+          action: 'low',
+          interval: 2000,
+          timestamp: Date.now()
+        })));
+        console.log('[Traffic Control] Trafic faible activé');
+      }
+      break;
+      
+    case 'normal':
+      // Trafic normal (1 requête toutes les 60ms)
+      if (natsConnection) {
+        natsConnection.publish("traffic.control", sc.encode(JSON.stringify({
+          action: 'normal',
+          interval: 60,
+          timestamp: Date.now()
+        })));
+        console.log('[Traffic Control] Trafic normal activé');
+      }
+      break;
+      
+    case 'attack':
+      // Déclencher une attaque immédiate
+      if (natsConnection) {
+        const targetNode = Array.from(state.nodes.keys())[0] || 'node-1';
+        const badIP = '203.0.113.66';
+        
+        // Envoyer 30 requêtes d'attaque
+        for (let i = 0; i < 30; i++) {
+          setTimeout(() => {
+            const attackEvent = {
+              nodeId: targetNode,
+              ts: Date.now(),
+              src_ip: badIP,
+              path: '/wp-login.php',
+              status: 401,
+              ua: 'B4dB0t'
+            };
+            natsConnection.publish("traffic.http", sc.encode(JSON.stringify(attackEvent)));
+          }, i * 50); // 50ms entre chaque requête
+        }
+        console.log(`[Traffic Control] Attaque déclenchée sur ${targetNode}`);
+      }
+      break;
+      
+    default:
+      console.log(`[Traffic Control] Commande inconnue: ${command}`);
+  }
+}
+
 function broadcast(obj:any){
   const msg = JSON.stringify(obj);
   for (const client of wss.clients) if (client.readyState === WebSocket.OPEN) client.send(msg);
@@ -558,6 +630,9 @@ wss.on('connection', (ws) => {
             state.failMode = state.failMode === 'fail-open' ? 'fail-closed' : 'fail-open';
             console.log(`Mode de fail-over changé: ${state.failMode}`);
             break;
+          case 'trafficControl':
+            handleTrafficControl(data.command);
+            break;
         }
       }
     } catch (e) {
@@ -644,6 +719,8 @@ setInterval(() => {
       floodMode: state.floodMode,
       controllerHealth: state.controllerHealth,
       failMode: state.failMode,
+      systemVersion: SYSTEM_VERSION,
+      buildTimestamp: BUILD_TIMESTAMP,
       timestamp: Date.now()
     }
   });
@@ -657,15 +734,6 @@ setInterval(() => {
   // Démarrer le serveur HTTP
   httpServer.listen(HTTP_PORT, () => {
     console.log(`[controller] HTTP server running on port ${HTTP_PORT}`);
-    
-    // Add some demo events for testing
-    setTimeout(() => {
-      broadcast({type:"event", payload:{kind:"hello", nodeId:"demo-node-1", ts: Date.now()}});
-      broadcast({type:"event", payload:{kind:"alert", nodeId:"demo-node-1", reason:"Test attack detected", ts: Date.now()}});
-      broadcast({type:"event", payload:{kind:"ioc.local", iocKind:"ip", value:"192.168.1.50", source:"demo-node-1", reason:"Test IOC", ts: Date.now()}});
-      broadcast({type:"event", payload:{kind:"ioc.share", iocKind:"ip", value:"192.168.1.50", source:"demo-node-1", reason:"Test IOC shared", ts: Date.now()}});
-      broadcast({type:"event", payload:{kind:"drop", nodeId:"demo-node-1", value:"192.168.1.50", ts: Date.now()}});
-    }, 2000);
   });
 
   // Découverte des nodes
@@ -716,7 +784,8 @@ setInterval(() => {
       };
       n.alerts++; 
       n.alerts_1m++;
-      n.health = "under-attack";
+      // Ne pas isoler le nœud qui détecte l'attaque - il reste opérationnel
+      // n.health reste "ok" car le nœud a déjà appliqué le blocage local
       n.lastSeen = now;
       state.nodes.set(id, n);
       
@@ -856,6 +925,11 @@ setInterval(() => {
         const node = state.nodes.get(nodeId);
         if (node) {
           node.iocAcks.set(iocKey, now);
+          
+          // Marquer le nœud comme "protected" s'il applique des IOCs
+          if (node.health === "ok") {
+            node.health = "protected";
+          }
           
           // Check for sync issues - if node doesn't ack IOC shares
           const ioc = state.activeIOCs.get(iocKey);

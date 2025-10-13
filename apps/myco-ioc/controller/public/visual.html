@@ -58,6 +58,30 @@
             color: white;
         }
         
+        .traffic-btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 25px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }
+        
+        .traffic-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .traffic-btn:active {
+            transform: translateY(0);
+        }
+        
+        .traffic-btn.active {
+            box-shadow: 0 0 0 3px rgba(255,255,255,0.5);
+        }
+        
         .container {
             padding: 2rem;
             max-width: 1400px;
@@ -114,16 +138,14 @@
         }
         
         .node-circle.ok { fill: #27ae60; }
-        .node-circle.under-attack { fill: #e67e22; }
-        .node-circle.ioc-applied { fill: #3498db; }
+        .node-circle.protected { fill: #3498db; }
         .node-circle.high-drops { fill: #e74c3c; }
         .node-circle.isolated { fill: #95a5a6; }
         .node-circle.drift { fill: #9b59b6; }
         
         /* Health status badges */
         .health-status.ok { background: #27ae60; color: white; }
-        .health-status.under-attack { background: #e67e22; color: white; }
-        .health-status.ioc-applied { background: #3498db; color: white; }
+        .health-status.protected { background: #3498db; color: white; }
         .health-status.high-drops { background: #e74c3c; color: white; }
         .health-status.isolated { background: #95a5a6; color: white; }
         .health-status.drift { background: #9b59b6; color: white; }
@@ -492,9 +514,23 @@
 <body>
     <div class="header">
         <h1>🌐 Myco-IOC Visual Dashboard</h1>
+        <div id="versionInfo" style="text-align: center; margin: 0.5rem 0; padding: 0.5rem; background: rgba(255,255,255,0.3); border-radius: 10px; font-size: 0.9em; color: #666;">
+            <span id="versionText">Version: Chargement...</span>
+        </div>
         <div class="nav-tabs">
             <a href="/" class="nav-tab">Dashboard Simple</a>
             <a href="/visual" class="nav-tab active">Dashboard Visuel</a>
+        </div>
+        
+        <!-- Contrôles de trafic -->
+        <div style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+            <button id="stopTraffic" class="traffic-btn active" style="background: #e74c3c;">🛑 Arrêter</button>
+            <button id="lowTraffic" class="traffic-btn" style="background: #27ae60;">🐌 Trafic Faible</button>
+            <button id="normalTraffic" class="traffic-btn" style="background: #3498db;">🚗 Trafic Normal</button>
+            <button id="triggerAttack" class="traffic-btn" style="background: #f39c12;">⚡ Attaque</button>
+        </div>
+        <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9em; color: #666;">
+            💡 Le trafic démarre arrêté - Utilisez les boutons pour le contrôler
         </div>
     </div>
 
@@ -660,6 +696,7 @@
                 <button class="filter-btn" data-filter="ioc-local">IOC Local</button>
                 <button class="filter-btn" data-filter="ioc-share">IOC Partagé</button>
                 <button class="filter-btn" data-filter="drop">Drops</button>
+                <button class="filter-btn" data-filter="diagnostic">🔍 Diagnostic</button>
             </div>
             <div class="timeline-container" id="timelineContainer">
                 <p style="text-align: center; color: #6c757d;">Aucun événement</p>
@@ -695,41 +732,50 @@
             initializeControls();
             connectWebSocket();
             
-            // Add some demo events for testing
-            setTimeout(() => {
-                addEvent({kind:"hello", nodeId:"demo-node-1", ts: Date.now()});
-                addEvent({kind:"alert", nodeId:"demo-node-1", reason:"Test attack detected", ts: Date.now()});
-                addEvent({kind:"ioc.local", iocKind:"ip", value:"192.168.1.50", source:"demo-node-1", reason:"Test IOC", ts: Date.now()});
-                addEvent({kind:"ioc.share", iocKind:"ip", value:"192.168.1.50", source:"demo-node-1", reason:"Test IOC shared", ts: Date.now()});
-                addEvent({kind:"drop", nodeId:"demo-node-1", value:"192.168.1.50", ts: Date.now()});
-            }, 3000);
-            
             // Check for isolated nodes every 5 seconds
             setInterval(checkNodeIsolation, 5000);
         });
         
         function checkNodeIsolation() {
             const now = Date.now();
-            const isolationTimeout = 15000; // 15 seconds
+            const isolationTimeout = 30000; // 30 seconds
             
             for (const [nodeId, node] of nodes) {
-                const timeSinceHeartbeat = now - (node.lastHeartbeat || node.lastSeen || 0);
+                const timeSinceLastSeen = now - (node.lastSeen || 0);
                 
-                if (timeSinceHeartbeat > isolationTimeout && node.health !== 'isolated') {
+                // Déterminer l'état de santé basé uniquement sur lastSeen
+                const shouldBeIsolated = timeSinceLastSeen > isolationTimeout;
+                const currentlyIsolated = node.health === 'isolated';
+                
+                if (shouldBeIsolated && !currentlyIsolated) {
                     updateNodeStatus(nodeId, { health: 'isolated' });
                     addEvent({
                         kind: 'node_isolated',
                         nodeId: nodeId,
-                        reason: 'No heartbeat for ' + Math.round(timeSinceHeartbeat/1000) + 's',
+                        reason: 'No activity for ' + Math.round(timeSinceLastSeen/1000) + 's',
                         ts: now
                     });
-                } else if (timeSinceHeartbeat <= isolationTimeout && node.health === 'isolated') {
+                    // Ajouter un événement de diagnostic
+                    addDiagnosticEvent(nodeId, 'ISOLATED', {
+                        reason: 'Timeout',
+                        timeSinceLastSeen: Math.round(timeSinceLastSeen/1000) + 's',
+                        lastSeen: new Date(node.lastSeen).toLocaleTimeString(),
+                        alerts: node.alerts || 0,
+                        drops: node.drops || 0
+                    });
+                } else if (!shouldBeIsolated && currentlyIsolated) {
                     updateNodeStatus(nodeId, { health: 'ok' });
                     addEvent({
                         kind: 'node_reconnected',
                         nodeId: nodeId,
-                        reason: 'Heartbeat restored',
+                        reason: 'Node reconnected',
                         ts: now
+                    });
+                    // Ajouter un événement de diagnostic
+                    addDiagnosticEvent(nodeId, 'RECONNECTED', {
+                        reason: 'Activity restored',
+                        timeSinceLastSeen: Math.round(timeSinceLastSeen/1000) + 's',
+                        lastSeen: new Date(node.lastSeen).toLocaleTimeString()
                     });
                 }
             }
@@ -787,6 +833,9 @@
                     }));
                 }
             });
+            
+            // Initialize traffic controls
+            initializeTrafficControls();
         }
         
         function updateGlobalQuorum(quorum) {
@@ -880,6 +929,14 @@
             }
         }
         
+        function updateVersion(version, buildTimestamp) {
+            const versionEl = document.getElementById('versionText');
+            if (versionEl) {
+                const buildDate = new Date(buildTimestamp).toLocaleString('fr-FR');
+                versionEl.textContent = `Version: ${version} | Build: ${buildDate}`;
+            }
+        }
+        
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -915,6 +972,52 @@
             };
         }
         
+        // Contrôles de trafic
+        function initializeTrafficControls() {
+            document.getElementById('stopTraffic').addEventListener('click', () => {
+                sendTrafficCommand('stop');
+                updateTrafficButtonState('stopTraffic');
+            });
+            
+            document.getElementById('lowTraffic').addEventListener('click', () => {
+                sendTrafficCommand('low');
+                updateTrafficButtonState('lowTraffic');
+            });
+            
+            document.getElementById('normalTraffic').addEventListener('click', () => {
+                sendTrafficCommand('normal');
+                updateTrafficButtonState('normalTraffic');
+            });
+            
+            document.getElementById('triggerAttack').addEventListener('click', () => {
+                sendTrafficCommand('attack');
+                updateTrafficButtonState('triggerAttack');
+            });
+        }
+        
+        function sendTrafficCommand(command) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'command',
+                    action: 'trafficControl',
+                    command: command
+                }));
+                console.log(`Traffic command sent: ${command}`);
+            } else {
+                console.error('WebSocket not connected');
+            }
+        }
+        
+        function updateTrafficButtonState(activeButtonId) {
+            // Remove active class from all buttons
+            document.querySelectorAll('.traffic-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Add active class to clicked button
+            document.getElementById(activeButtonId).classList.add('active');
+        }
+        
         function handleMessage(data) {
             switch (data.type) {
                 case 'state':
@@ -926,6 +1029,7 @@
                     updateSparklines(data.payload.nodes);
                     updateSLOMetrics(data.payload.sloMetrics);
                     updateSLOAlerts(data.payload.sloAlerts);
+                    updateVersion(data.payload.systemVersion, data.payload.buildTimestamp);
                     if (data.payload.globalQuorum) {
                         updateGlobalQuorum(data.payload.globalQuorum);
                     }
@@ -952,9 +1056,25 @@
                 }
             }
             
+            // Comparer les anciens et nouveaux états pour détecter les changements
+            const oldNodes = new Map(nodes);
+            
             nodes.clear();
             nodeData.forEach(node => {
                 nodes.set(node.id, node);
+                
+                // Ajouter un événement de diagnostic si l'état a changé
+                const oldNode = oldNodes.get(node.id);
+                if (oldNode && oldNode.health !== node.health) {
+                    addDiagnosticEvent(node.id, 'STATE_CHANGE', {
+                        reason: `Health changed from ${oldNode.health} to ${node.health}`,
+                        oldHealth: oldNode.health,
+                        newHealth: node.health,
+                        alerts: node.alerts || 0,
+                        drops: node.drops || 0,
+                        lastSeen: new Date(node.lastSeen).toLocaleTimeString()
+                    });
+                }
             });
             
             // Restore test nodes
@@ -1009,10 +1129,9 @@
             nodeElement.select('circle.node-circle')
                 .attr('class', d => {
                     let className = 'node-circle';
-                    if (d.health === 'under-attack') className += ' under-attack';
+                    if (d.health === 'protected') className += ' protected';
                     else if (d.health === 'isolated') className += ' isolated';
                     else if (d.health === 'drift') className += ' drift';
-                    else if (d.alerts > 0) className += ' ioc-applied';
                     else if (d.drops > 10) className += ' high-drops';
                     else className += ' ok';
                     console.log(`Force updated node ${d.id} class: ${className}`);
@@ -1022,14 +1141,13 @@
             // Update TTL ring
             nodeElement.select('circle.ttl-ring')
                 .style('fill', d => {
-                    if (d.health === 'under-attack') return '#e67e22';
+                    if (d.health === 'protected') return '#3498db';
                     else if (d.health === 'isolated') return '#95a5a6';
                     else if (d.health === 'drift') return '#9b59b6';
-                    else if (d.alerts > 0) return '#3498db';
                     else if (d.drops > 10) return '#e74c3c';
                     else return '#27ae60';
                 })
-                .style('opacity', d => d.alerts > 0 ? 1 : 0);
+                .style('opacity', d => d.health === 'protected' ? 1 : 0);
         }
         
         function updateNetworkGraph() {
@@ -1091,10 +1209,9 @@
                 .attr('r', 20)
                 .attr('class', d => {
                     let className = 'node-circle';
-                    if (d.health === 'under-attack') className += ' under-attack';
+                    if (d.health === 'protected') className += ' protected';
                     else if (d.health === 'isolated') className += ' isolated';
                     else if (d.health === 'drift') className += ' drift';
-                    else if (d.alerts > 0) className += ' ioc-applied';
                     else if (d.drops > 10) className += ' high-drops';
                     else className += ' ok';
                     return className;
@@ -1106,14 +1223,13 @@
                 .attr('class', 'ttl-ring')
                 .style('stroke', '#ffc107')
                 .style('fill', d => {
-                    if (d.health === 'under-attack') return '#e67e22';
+                    if (d.health === 'protected') return '#3498db';
                     else if (d.health === 'isolated') return '#95a5a6';
                     else if (d.health === 'drift') return '#9b59b6';
-                    else if (d.alerts > 0) return '#3498db';
                     else if (d.drops > 10) return '#e74c3c';
                     else return '#27ae60';
                 })
-                .style('opacity', d => d.alerts > 0 ? 1 : 0);
+                .style('opacity', d => d.health === 'protected' ? 1 : 0);
             
             // Add labels for new nodes
             nodeEnter.append('text')
@@ -1131,10 +1247,9 @@
             nodeMerged.select('circle.node-circle')
                 .attr('class', d => {
                     let className = 'node-circle';
-                    if (d.health === 'under-attack') className += ' under-attack';
+                    if (d.health === 'protected') className += ' protected';
                     else if (d.health === 'isolated') className += ' isolated';
                     else if (d.health === 'drift') className += ' drift';
-                    else if (d.alerts > 0) className += ' ioc-applied';
                     else if (d.drops > 10) className += ' high-drops';
                     else className += ' ok';
                     console.log(`Node ${d.id} class: ${className}`);
@@ -1144,14 +1259,13 @@
             // Update existing nodes' TTL rings
             nodeMerged.select('circle.ttl-ring')
                 .style('fill', d => {
-                    if (d.health === 'under-attack') return '#e67e22';
+                    if (d.health === 'protected') return '#3498db';
                     else if (d.health === 'isolated') return '#95a5a6';
                     else if (d.health === 'drift') return '#9b59b6';
-                    else if (d.alerts > 0) return '#3498db';
                     else if (d.drops > 10) return '#e74c3c';
                     else return '#27ae60';
                 })
-                .style('opacity', d => d.alerts > 0 ? 1 : 0);
+                .style('opacity', d => d.health === 'protected' ? 1 : 0);
             
             // Update existing nodes' labels
             nodeMerged.select('text.node-label')
@@ -1297,25 +1411,24 @@
             }
             
             container.innerHTML = nodeData.map(node => {
-                const isOnline = (Date.now() - node.lastSeen) < 10000; // 10s threshold
+                // Utiliser lastSeen pour la connectivité (plus robuste)
+                const timeSinceLastSeen = Date.now() - (node.lastSeen || 0);
+                const isOnline = timeSinceLastSeen < 30000; // 30s threshold seulement
                 const healthClass = isOnline ? 'health-online' : 'health-isolated';
                 const healthText = isOnline ? 'En ligne' : 'Isolé';
                 
-                // Determine node health status (same logic as graph)
+                // Determine node health status (cohérent avec le controller)
                 let nodeHealthStatus = '';
                 let nodeHealthClass = '';
-                if (node.health === 'under-attack') {
-                    nodeHealthStatus = '🔴 Sous attaque';
-                    nodeHealthClass = 'under-attack';
+                if (node.health === 'protected') {
+                    nodeHealthStatus = '🔵 Protégé';
+                    nodeHealthClass = 'protected';
                 } else if (node.health === 'isolated') {
                     nodeHealthStatus = '⚫ Isolé';
                     nodeHealthClass = 'isolated';
                 } else if (node.health === 'drift') {
                     nodeHealthStatus = '🟣 Dérive';
                     nodeHealthClass = 'drift';
-                } else if (node.alerts > 0) {
-                    nodeHealthStatus = '🔵 IOC Appliqué';
-                    nodeHealthClass = 'ioc-applied';
                 } else if (node.drops > 10) {
                     nodeHealthStatus = '🟠 Beaucoup de drops';
                     nodeHealthClass = 'high-drops';
@@ -1428,7 +1541,7 @@
                         break;
                     case 'alert':
                         updateNodeStatus(event.nodeId, { 
-                            health: 'under-attack',
+                            health: 'ok', // Le nœud reste opérationnel après détection
                             alerts: (nodes.get(event.nodeId)?.alerts || 0) + 1,
                             lastSeen: event.ts || Date.now()
                         });
@@ -1436,6 +1549,13 @@
                     case 'drop':
                         updateNodeStatus(event.nodeId, { 
                             drops: (nodes.get(event.nodeId)?.drops || 0) + 1,
+                            lastSeen: event.ts || Date.now()
+                        });
+                        break;
+                    case 'ack':
+                        // Le nœud a appliqué un IOC partagé → état protected
+                        updateNodeStatus(event.nodeId, { 
+                            health: 'protected',
                             lastSeen: event.ts || Date.now()
                         });
                         break;
@@ -1450,6 +1570,18 @@
             }
             
             updateTimeline();
+        }
+        
+        // Fonction pour ajouter des événements de diagnostic
+        function addDiagnosticEvent(nodeId, action, details) {
+            const event = {
+                kind: 'diagnostic',
+                nodeId: nodeId,
+                action: action,
+                details: details,
+                ts: Date.now()
+            };
+            addEvent(event);
         }
         
         function updateTimeline() {
@@ -1503,6 +1635,14 @@
                     case 'ack':
                         eventText = `✅ ACK de ${event.nodeId} pour ${event.iocKey}`;
                         break;
+                    case 'diagnostic':
+                        eventText = `🔍 ${event.action} - ${event.nodeId}: ${event.details.reason}`;
+                        eventClass += ' diagnostic';
+                        break;
+                    case 'node_reconnected':
+                        eventText = `🟢 ${event.nodeId} reconnecté: ${event.reason}`;
+                        eventClass += ' reconnected';
+                        break;
                     case 'slo_alert':
                         eventText = `🚨 SLO Alert: ${event.message}`;
                         eventClass += ' alert';
@@ -1521,6 +1661,14 @@
                 return `
                     <div class="${eventClass}">
                         <div>${eventText}</div>
+                        ${event.kind === 'diagnostic' ? `
+                            <div class="diagnostic-details" style="font-size: 0.8em; color: #666; margin-top: 2px;">
+                                ${event.details.timeSinceLastSeen ? `⏱️ ${event.details.timeSinceLastSeen}` : ''}
+                                ${event.details.lastSeen ? ` | 📅 ${event.details.lastSeen}` : ''}
+                                ${event.details.alerts !== undefined ? ` | 🚨 ${event.details.alerts} alerts` : ''}
+                                ${event.details.drops !== undefined ? ` | 🛡️ ${event.details.drops} drops` : ''}
+                            </div>
+                        ` : ''}
                         <div class="timestamp">${new Date(event.timestamp || event.ts || Date.now()).toLocaleTimeString()}</div>
                     </div>
                 `;
@@ -1667,10 +1815,10 @@
             }, 2000); // Increased delay
             
             setTimeout(() => {
-                console.log('Setting test-node to under-attack...');
+                console.log('Setting test-node to protected...');
                 console.log('Test node exists before update:', nodes.has('test-node'));
                 if (nodes.has('test-node')) {
-                    updateNodeStatus('test-node', { health: 'under-attack', alerts: 5 });
+                    updateNodeStatus('test-node', { health: 'protected', alerts: 5 });
                 } else {
                     console.error('Test node not found!');
                 }

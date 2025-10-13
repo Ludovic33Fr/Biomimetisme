@@ -125,6 +125,14 @@ async function main() {
         if (ioc.kind === "ip") {
           applyIPBlock(ioc.value, ioc.ttl_sec);
           console.log(`[${NODE_ID}] applied shared IOC ip=${ioc.value} ttl=${ioc.ttl_sec}s (from=${ioc.source})`);
+          
+          // Envoyer un accusé de réception pour indiquer que l'IOC a été appliqué
+          const iocKey = `${ioc.kind}|${ioc.value}`;
+          nc.publish(`ack.${NODE_ID}`, sc.encode(JSON.stringify({
+            nodeId: NODE_ID,
+            iocKey: iocKey,
+            ts: now()
+          })));
         }
       } catch (e) {
         console.error(`[${NODE_ID}] error parsing ioc.share`, e);
