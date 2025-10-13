@@ -34,7 +34,7 @@ const getIp = (req: express.Request) => {
 // Configuration du limiteur
 const config: LimiterConfig = {
     windowS: parseInt(process.env.WINDOW_S || '10'),
-    thresholdRps: parseInt(process.env.THRESHOLD_RPS || '10'),
+    thresholdRps: parseInt(process.env.THRESHOLD_RPS || '3'),
     pathDiversity: parseInt(process.env.PATH_DIVERSITY || '5'),
     tripMs: parseInt(process.env.TRIP_MS || '30000')
 };
@@ -42,7 +42,7 @@ const config: LimiterConfig = {
 // Configuration spéciale pour les réservations (plus stricte)
 const reservationConfig: LimiterConfig = {
     windowS: 5, // Fenêtre plus courte
-    thresholdRps: 3, // Seuil RPS plus bas
+    thresholdRps: 0.5, // Seuil RPS très bas (0.5 RPS)
     pathDiversity: 2, // Diversité plus stricte
     tripMs: 60000 // Blocage plus long (1 minute)
 };
@@ -117,6 +117,26 @@ app.use((req, res, next) => {
     next();
 });
 
+
+// Endpoint pour effacer les données IP
+app.post('/api/clear-ips', (req, res) => {
+    console.log('🗑️ Demande d\'effacement des données IP');
+    
+    // Effacer les données du limiteur principal
+    limiter.clear();
+    
+    // Effacer les données du limiteur de réservation
+    reservationLimiter.clear();
+    
+    // Notifier tous les clients connectés
+    io.emit('ips-cleared', { message: 'Données IP effacées' });
+    
+    res.json({ 
+        status: 'success', 
+        message: 'Données IP effacées avec succès',
+        timestamp: new Date().toISOString()
+    });
+});
 
 // Endpoint "normal"
 app.get('/api/data', (_req, res) => {

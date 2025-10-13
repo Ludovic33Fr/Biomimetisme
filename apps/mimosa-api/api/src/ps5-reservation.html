@@ -385,6 +385,12 @@ header h1{
         <div class="reservation-form">
             <h3 style="margin:0 0 24px 0; text-align:center; color:white;">Réserver maintenant</h3>
             
+            <div style="text-align:center; margin-bottom:20px;">
+                <button type="button" id="fillFormButton" style="padding:8px 16px; background:rgba(124,58,237,0.2); border:1px solid var(--accent); border-radius:8px; color:var(--accent); cursor:pointer; font-size:14px; transition:all 0.3s ease;">
+                    🔧 Préremplir le formulaire
+                </button>
+            </div>
+            
             <form id="reservationForm">
                 <div class="form-group">
                     <label for="email">Adresse email</label>
@@ -448,6 +454,7 @@ const button = document.getElementById('reservationButton');
 const statusMessage = document.getElementById('statusMessage');
 const rateLimitInfo = document.getElementById('rateLimitInfo');
 const connectionStatus = document.getElementById('connection-status');
+const fillFormButton = document.getElementById('fillFormButton');
 
 // Fonction pour afficher un message de statut
 function showStatus(message, type) {
@@ -494,6 +501,36 @@ function checkBlockStatus() {
         updateButtonState('normal');
         return false;
     }
+}
+
+// Fonction pour préremplir le formulaire avec des données de test
+function fillFormWithTestData() {
+    const testData = {
+        email: 'test.user@example.com',
+        name: 'Jean Dupont',
+        phone: '06 12 34 56 78',
+        quantity: '1'
+    };
+    
+    document.getElementById('email').value = testData.email;
+    document.getElementById('name').value = testData.name;
+    document.getElementById('phone').value = testData.phone;
+    document.getElementById('quantity').value = testData.quantity;
+    
+    // Animation du bouton pour confirmer l'action
+    fillFormButton.style.background = 'rgba(93,211,158,0.2)';
+    fillFormButton.style.borderColor = 'var(--ok)';
+    fillFormButton.style.color = 'var(--ok)';
+    fillFormButton.textContent = '✅ Formulaire prérempli';
+    
+    setTimeout(() => {
+        fillFormButton.style.background = 'rgba(124,58,237,0.2)';
+        fillFormButton.style.borderColor = 'var(--accent)';
+        fillFormButton.style.color = 'var(--accent)';
+        fillFormButton.textContent = '🔧 Préremplir le formulaire';
+    }, 2000);
+    
+    showStatus('✅ Formulaire prérempli avec des données de test', 'success');
 }
 
 // Gestion de la soumission du formulaire
@@ -543,6 +580,9 @@ form.addEventListener('submit', async (e) => {
         console.error('Erreur de réservation:', error);
     }
 });
+
+// Gestion du clic sur le bouton de préremplissage
+fillFormButton.addEventListener('click', fillFormWithTestData);
 
 // Événements WebSocket
 socket.on('trip', ({ ip, ttlMs, reason }) => {
