@@ -12,7 +12,7 @@ const WS_PORT = parseInt(process.env.WS_PORT || "8080", 10);
 const HTTP_PORT = parseInt(process.env.HTTP_PORT || "3000", 10);
 
 // Version du système - s'incrémente à chaque modification majeure
-const SYSTEM_VERSION = "2.3.1";
+const SYSTEM_VERSION = "2.3.2";
 const BUILD_TIMESTAMP = new Date().toISOString();
 
 // SLO/SLA Configuration

@@ -758,8 +758,10 @@
                     // Ajouter un événement de diagnostic
                     addDiagnosticEvent(nodeId, 'ISOLATED', {
                         reason: 'Timeout',
-                        timeSinceLastSeen: Math.round(timeSinceLastSeen/1000) + 's',
-                        lastSeen: new Date(node.lastSeen).toLocaleTimeString(),
+                        source: 'frontend-check',
+                        timeSinceLastSeenSec: Math.round(timeSinceLastSeen/1000),
+                        lastSeen: node.lastSeen ? new Date(node.lastSeen).toLocaleTimeString() : 'N/A',
+                        isolationThresholdSec: 30,
                         alerts: node.alerts || 0,
                         drops: node.drops || 0
                     });
@@ -774,8 +776,9 @@
                     // Ajouter un événement de diagnostic
                     addDiagnosticEvent(nodeId, 'RECONNECTED', {
                         reason: 'Activity restored',
-                        timeSinceLastSeen: Math.round(timeSinceLastSeen/1000) + 's',
-                        lastSeen: new Date(node.lastSeen).toLocaleTimeString()
+                        source: 'frontend-check',
+                        timeSinceLastSeenSec: Math.round(timeSinceLastSeen/1000),
+                        lastSeen: node.lastSeen ? new Date(node.lastSeen).toLocaleTimeString() : 'N/A'
                     });
                 }
             }
@@ -1066,13 +1069,24 @@
                 // Ajouter un événement de diagnostic si l'état a changé
                 const oldNode = oldNodes.get(node.id);
                 if (oldNode && oldNode.health !== node.health) {
+                    const nowTs = Date.now();
+                    const isolationThresholdSec = 30;
+                    const timeSinceLastSeenSec = Math.round((nowTs - (node.lastSeen || 0)) / 1000);
+                    const timeSinceHeartbeatSec = Math.round((nowTs - (node.lastHeartbeat || node.lastSeen || 0)) / 1000);
+                    const isOnline = timeSinceLastSeenSec < isolationThresholdSec;
                     addDiagnosticEvent(node.id, 'STATE_CHANGE', {
                         reason: `Health changed from ${oldNode.health} to ${node.health}`,
+                        source: 'controller',
                         oldHealth: oldNode.health,
                         newHealth: node.health,
                         alerts: node.alerts || 0,
                         drops: node.drops || 0,
-                        lastSeen: new Date(node.lastSeen).toLocaleTimeString()
+                        lastSeen: node.lastSeen ? new Date(node.lastSeen).toLocaleTimeString() : 'N/A',
+                        lastHeartbeat: node.lastHeartbeat ? new Date(node.lastHeartbeat).toLocaleTimeString() : 'N/A',
+                        timeSinceLastSeenSec,
+                        timeSinceHeartbeatSec,
+                        isolationThresholdSec,
+                        isOnline
                     });
                 }
             });
@@ -1663,8 +1677,13 @@
                         <div>${eventText}</div>
                         ${event.kind === 'diagnostic' ? `
                             <div class="diagnostic-details" style="font-size: 0.8em; color: #666; margin-top: 2px;">
-                                ${event.details.timeSinceLastSeen ? `⏱️ ${event.details.timeSinceLastSeen}` : ''}
+                                ${event.details.source ? `🔗 ${event.details.source}` : ''}
+                                ${event.details.timeSinceLastSeenSec !== undefined ? ` | ⏱️ lastSeen: ${event.details.timeSinceLastSeenSec}s` : ''}
+                                ${event.details.timeSinceHeartbeatSec !== undefined ? ` | 💓 heartbeat: ${event.details.timeSinceHeartbeatSec}s` : ''}
+                                ${event.details.isolationThresholdSec !== undefined ? ` | 🎚️ seuil: ${event.details.isolationThresholdSec}s` : ''}
+                                ${event.details.isOnline !== undefined ? ` | 🌐 online: ${event.details.isOnline ? 'oui' : 'non'}` : ''}
                                 ${event.details.lastSeen ? ` | 📅 ${event.details.lastSeen}` : ''}
+                                ${event.details.lastHeartbeat ? ` | 💓 ${event.details.lastHeartbeat}` : ''}
                                 ${event.details.alerts !== undefined ? ` | 🚨 ${event.details.alerts} alerts` : ''}
                                 ${event.details.drops !== undefined ? ` | 🛡️ ${event.details.drops} drops` : ''}
                             </div>
