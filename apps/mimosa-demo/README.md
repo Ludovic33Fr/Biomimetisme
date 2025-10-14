@@ -26,3 +26,11 @@ Two paths are provided:
 ```bash
 cd docker
 docker compose up --build -d
+
+
+### Test 
+Utilisation de l'url : 
+- http://localhost:8080/ : Dashboard 
+- http://localhost:8080/api/data : Simulation appel API 
+- http://localhost:8080/ps5 : Simulation d'un appel PS5
+

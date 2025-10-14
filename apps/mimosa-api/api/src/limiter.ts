@@ -159,4 +159,10 @@ export class MimosaLimiter {
         
         return count > 0 ? totalDiversity / count : 0;
     }
+    
+    // Méthode pour effacer toutes les données IP
+    clear(): void {
+        console.log('🗑️ Effacement de toutes les données IP');
+        this.states.clear();
+    }
 }

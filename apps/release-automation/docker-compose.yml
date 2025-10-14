@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: release-automation-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=changeme123
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Europe/Paris
+      - N8N_LOG_LEVEL=info
+      - N8N_METRICS=true
+      - N8N_DIAGNOSTICS_ENABLED=true
+      # Credentials
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - JIRA_TOKEN=${JIRA_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CONFLUENCE_TOKEN=${CONFLUENCE_TOKEN}
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+    volumes:
+      - ./n8n/workflows:/home/node/.n8n/workflows
+      - ./n8n/credentials:/home/node/.n8n/credentials
+      - ./n8n/custom-nodes:/home/node/.n8n/custom
+      - ./templates:/home/node/templates
+      - n8n_data:/home/node/.n8n
+    networks:
+      - release-automation
+
+  kpi-dashboard:
+    image: node:18-alpine
+    container_name: release-automation-kpi
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    working_dir: /app
+    volumes:
+      - ./kpi-dashboard:/app
+    command: sh -c "npm install && npm start"
+    environment:
+      - PORT=3000
+      - N8N_WEBHOOK_URL=http://n8n:5678
+    networks:
+      - release-automation
+    depends_on:
+      - n8n
+
+  redis:
+    image: redis:7-alpine
+    container_name: release-automation-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - release-automation
+
+volumes:
+  n8n_data:
+  redis_data:
+
+networks:
+  release-automation:
+    driver: bridge
