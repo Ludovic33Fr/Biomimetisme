@@ -12,7 +12,7 @@ const WS_PORT = parseInt(process.env.WS_PORT || "8080", 10);
 const HTTP_PORT = parseInt(process.env.HTTP_PORT || "3000", 10);
 
 // Version du système - s'incrémente à chaque modification majeure
-const SYSTEM_VERSION = "2.3.2";
+const SYSTEM_VERSION = "2.3.3";
 const BUILD_TIMESTAMP = new Date().toISOString();
 
 // SLO/SLA Configuration
@@ -757,6 +757,8 @@ setInterval(() => {
           reputation: 0.5
         };
         n.lastSeen = now;
+        // Treat nodes.hello as a heartbeat as well to avoid stale heartbeat-based isolation
+        n.lastHeartbeat = now;
         state.nodes.set(id, n);
         broadcast({type:"event", payload:{kind:"hello", nodeId:id, ts: hello.ts}});
       } catch (err) { /* ignore */ }
