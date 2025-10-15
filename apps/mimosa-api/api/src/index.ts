@@ -31,47 +31,66 @@ const getIp = (req: express.Request) => {
 };
 
 
-// Configuration du limiteur
-const config: LimiterConfig = {
+// Configuration par défaut (10 RPS comme demandé)
+const defaultConfig: LimiterConfig = {
     windowS: parseInt(process.env.WINDOW_S || '10'),
-    thresholdRps: parseInt(process.env.THRESHOLD_RPS || '3'),
+    thresholdRps: parseInt(process.env.THRESHOLD_RPS || '10'), // 10 RPS par défaut
     pathDiversity: parseInt(process.env.PATH_DIVERSITY || '5'),
     tripMs: parseInt(process.env.TRIP_MS || '30000')
 };
 
-// Configuration spéciale pour les réservations (plus stricte)
+// Configuration spécifique pour les réservations PS5 (0.5 RPS comme demandé)
 const reservationConfig: LimiterConfig = {
     windowS: 5, // Fenêtre plus courte
-    thresholdRps: 0.5, // Seuil RPS très bas (0.5 RPS)
+    thresholdRps: 0.3, // Seuil RPS très bas (0.3 RPS)
     pathDiversity: 2, // Diversité plus stricte
     tripMs: 60000 // Blocage plus long (1 minute)
 };
 
-const reservationLimiter = new MimosaLimiter(reservationConfig);
+// Système de configuration par route
+interface RouteConfig {
+    path: string;
+    config: LimiterConfig;
+    limiter: MimosaLimiter;
+}
 
-const limiter = new MimosaLimiter(config);
+const routeConfigs: RouteConfig[] = [
+    {
+        path: '/api/reserve-ps5',
+        config: reservationConfig,
+        limiter: new MimosaLimiter(reservationConfig)
+    }
+];
 
-// Callbacks pour les événements du limiteur principal
-limiter.onTrip = (ev: TripEvent) => {
-    console.log(`🚨 IP ${ev.ip} tripped: ${ev.reason} (TTL: ${ev.ttlMs}ms)`);
-    io.emit('trip', ev); // push au dashboard
-};
+// Limiteur par défaut
+const defaultLimiter = new MimosaLimiter(defaultConfig);
 
-limiter.onRecover = (ip: string) => {
-    console.log(`✅ IP ${ip} recovered`);
-    io.emit('recover', { ip });
-};
+// Fonction pour obtenir le limiteur approprié pour une route
+function getLimiterForRoute(path: string): MimosaLimiter {
+    const routeConfig = routeConfigs.find(rc => path === rc.path);
+    return routeConfig ? routeConfig.limiter : defaultLimiter;
+}
 
-// Callbacks pour les événements du limiteur de réservation
-reservationLimiter.onTrip = (ev: TripEvent) => {
-    console.log(`🎮 RÉSERVATION BLOQUÉE - IP ${ev.ip}: ${ev.reason} (TTL: ${ev.ttlMs}ms)`);
-    io.emit('trip', ev); // push au dashboard
-};
+// Configuration des callbacks pour tous les limiteurs
+function setupLimiterCallbacks(limiter: MimosaLimiter, routePath: string = 'default') {
+    limiter.onTrip = (ev: TripEvent) => {
+        const prefix = routePath === '/api/reserve-ps5' ? '🎮 RÉSERVATION BLOQUÉE' : '🚨 IP';
+        console.log(`${prefix} ${ev.ip} tripped: ${ev.reason} (TTL: ${ev.ttlMs}ms)`);
+        io.emit('trip', ev); // push au dashboard
+    };
 
-reservationLimiter.onRecover = (ip: string) => {
-    console.log(`🎮 RÉSERVATION DÉBLOQUÉE - IP ${ip} recovered`);
-    io.emit('recover', { ip });
-};
+    limiter.onRecover = (ip: string) => {
+        const prefix = routePath === '/api/reserve-ps5' ? '🎮 RÉSERVATION DÉBLOQUÉE' : '✅ IP';
+        console.log(`${prefix} ${ip} recovered`);
+        io.emit('recover', { ip });
+    };
+}
+
+// Configurer les callbacks pour tous les limiteurs
+setupLimiterCallbacks(defaultLimiter, 'default');
+routeConfigs.forEach(routeConfig => {
+    setupLimiterCallbacks(routeConfig.limiter, routeConfig.path);
+});
 
 
 // Middleware Mimosa: mesure, décide, éventuellement bloque
@@ -85,14 +104,21 @@ app.use((req, res, next) => {
         return next();
     }
 
+    // Obtenir le limiteur approprié pour cette route
+    const limiter = getLimiterForRoute(path);
+    const isReservationRoute = path === '/api/reserve-ps5';
+
     // Vérifier d'abord si l'IP est déjà repliée
     const { tripped, ttlMs } = limiter.isTripped(ip);
     if (tripped) {
+        const message = isReservationRoute 
+            ? 'Trop de tentatives de réservation. Veuillez patienter.'
+            : 'Mimosa plié — calme requis avant réouverture.';
         return res.status(429).json({
             status: 'folded',
             ip,
             ttlMs,
-            message: 'Mimosa plié — calme requis avant réouverture.'
+            message
         });
     }
 
@@ -103,17 +129,20 @@ app.use((req, res, next) => {
     const { tripped: nowTripped, ttlMs: newTtlMs } = limiter.isTripped(ip);
     if (nowTripped) {
         // L'événement 'trip' est déjà émis par limiter.onTrip, pas besoin de le refaire ici
+        const message = isReservationRoute 
+            ? 'Trop de tentatives de réservation. Veuillez patienter.'
+            : 'Mimosa plié — calme requis avant réouverture.';
         return res.status(429).json({
             status: 'folded',
             ip,
             ttlMs: newTtlMs,
-            message: 'Mimosa plié — calme requis avant réouverture.'
+            message
         });
     }
 
     // Émettre les métriques pour les requêtes normales
-    console.log(`📡 Émission WebSocket metrics: IP=${ip}, RPS=${rec.rps}`);
-    io.emit('metrics', { ip, rps: rec.rps });
+    console.log(`📡 Émission WebSocket metrics: IP=${ip}, RPS=${rec.rps}, Route=${path}`);
+    io.emit('metrics', { ip, rps: rec.rps, route: path });
     next();
 });
 
@@ -122,11 +151,13 @@ app.use((req, res, next) => {
 app.post('/api/clear-ips', (req, res) => {
     console.log('🗑️ Demande d\'effacement des données IP');
     
-    // Effacer les données du limiteur principal
-    limiter.clear();
+    // Effacer les données du limiteur par défaut
+    defaultLimiter.clear();
     
-    // Effacer les données du limiteur de réservation
-    reservationLimiter.clear();
+    // Effacer les données de tous les limiteurs de routes spécifiques
+    routeConfigs.forEach(routeConfig => {
+        routeConfig.limiter.clear();
+    });
     
     // Notifier tous les clients connectés
     io.emit('ips-cleared', { message: 'Données IP effacées' });
@@ -154,16 +185,22 @@ app.get('/api/noisy/:id', (req, res) => {
 
 // État pour le dashboard
 app.get('/api/state', (_req, res) => {
-    res.json({ items: limiter.snapshot(50) });
+    res.json({ items: defaultLimiter.snapshot(50) });
 });
 
 // Configuration pour le dashboard
 app.get('/api/config', (_req, res) => {
     res.json({
-        thresholdRps: config.thresholdRps,
-        pathDiversity: config.pathDiversity,
-        tripMs: config.tripMs,
-        windowS: config.windowS
+        default: {
+            thresholdRps: defaultConfig.thresholdRps,
+            pathDiversity: defaultConfig.pathDiversity,
+            tripMs: defaultConfig.tripMs,
+            windowS: defaultConfig.windowS
+        },
+        routes: routeConfigs.map(rc => ({
+            path: rc.path,
+            config: rc.config
+        }))
     });
 });
 
@@ -178,7 +215,7 @@ app.get('/ps5', (req, res) => {
     res.sendFile('ps5-reservation.html', { root: './public' });
 });
 
-// Endpoint de réservation PlayStation 5 avec limitation spécifique
+// Endpoint de réservation PlayStation 5 (rate limiting géré par le middleware)
 app.post('/api/reserve-ps5', (req, res) => {
     const ip = getIp(req);
     const { email, name, phone, quantity } = req.body;
@@ -191,39 +228,11 @@ app.post('/api/reserve-ps5', (req, res) => {
         });
     }
     
-    // Vérifier si l'IP est bloquée par le limiteur de réservation
-    const { tripped, ttlMs } = reservationLimiter.isTripped(ip);
-    if (tripped) {
-        return res.status(429).json({
-            success: false,
-            message: 'Trop de tentatives de réservation. Veuillez patienter.',
-            ttlMs,
-            status: 'rate_limited'
-        });
-    }
-    
-    // Enregistrer la tentative de réservation avec le limiteur spécialisé
-    const rec = reservationLimiter.record(ip, '/api/reserve-ps5');
-    
-    // Vérifier si cette tentative déclenche un blocage
-    const { tripped: nowTripped, ttlMs: newTtlMs } = reservationLimiter.isTripped(ip);
-    if (nowTripped) {
-        return res.status(429).json({
-            success: false,
-            message: 'Trop de tentatives de réservation. Veuillez patienter.',
-            ttlMs: newTtlMs,
-            status: 'rate_limited'
-        });
-    }
-    
     // Simulation de la réservation
     const reference = `PS5-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
     
     // Log de la réservation
     console.log(`🎮 Réservation PlayStation 5: ${email} - Référence: ${reference}`);
-    
-    // Émettre les métriques
-    io.emit('metrics', { ip, rps: rec.rps });
     
     res.json({
         success: true,
@@ -248,20 +257,20 @@ io.on('connection', (socket) => {
     console.log('📱 Client dashboard connecté:', socket.id);
     
     // Envoyer les métriques actuelles
-    const tripStatus = limiter.isTripped('dashboard');
+    const tripStatus = defaultLimiter.isTripped('dashboard');
     socket.emit('metrics', {
-        rps: limiter.getCurrentRps(),
-        diversity: limiter.getCurrentDiversity(),
+        rps: defaultLimiter.getCurrentRps(),
+        diversity: defaultLimiter.getCurrentDiversity(),
         tripped: tripStatus.tripped,
         ttl: tripStatus.ttlMs
     });
     
     // Gestion des demandes de métriques
     socket.on('get_metrics', () => {
-        const tripStatus = limiter.isTripped('dashboard');
+        const tripStatus = defaultLimiter.isTripped('dashboard');
         socket.emit('metrics', {
-            rps: limiter.getCurrentRps(),
-            diversity: limiter.getCurrentDiversity(),
+            rps: defaultLimiter.getCurrentRps(),
+            diversity: defaultLimiter.getCurrentDiversity(),
             tripped: tripStatus.tripped,
             ttl: tripStatus.ttlMs
         });
@@ -274,16 +283,16 @@ io.on('connection', (socket) => {
 
 // Fonction pour diffuser les métriques à tous les clients connectés
 function broadcastMetrics() {
-    const tripStatus = limiter.isTripped('dashboard');
+    const tripStatus = defaultLimiter.isTripped('dashboard');
     const metrics = {
-        rps: limiter.getCurrentRps(),
-        diversity: limiter.getCurrentDiversity(),
+        rps: defaultLimiter.getCurrentRps(),
+        diversity: defaultLimiter.getCurrentDiversity(),
         tripped: tripStatus.tripped,
         ttl: tripStatus.ttlMs
     };
     
     // Récupérer les données des IPs
-    const ipData = limiter.snapshot(20);
+    const ipData = defaultLimiter.snapshot(20);
     
     console.log('📊 Diffusion métriques:', metrics);
     io.emit('metrics', metrics);
