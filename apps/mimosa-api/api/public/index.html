@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mimosa API — Dashboard</title>
+<style>
+:root { 
+    --bg:#0b1020; 
+    --card:#121a33; 
+    --ok:#5dd39e; 
+    --warn:#ffd866; 
+    --bad:#ff6b6b; 
+    --muted:#9aa4b2; 
+    --accent:#7c3aed;
+}
+
+*{box-sizing:border-box} 
+
+body{
+    margin:0;
+    font-family:system-ui,Segoe UI,Roboto,Ubuntu;
+    color:white;
+    background:linear-gradient(160deg,#0b1020,#0f1430);
+    min-height:100vh;
+}
+
+header{
+    padding:16px 20px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    border-bottom:1px solid rgba(255,255,255,.06);
+    flex-wrap:wrap;
+}
+
+.config-info{
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+    opacity:0.8;
+}
+
+.live-metrics{
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+}
+
+.live-metrics .pill{
+    background:var(--accent);
+    border:1px solid rgba(124,58,237,.3);
+}
+
+header h1{
+    margin:0;
+    font-weight:700;
+    font-size:18px;
+    letter-spacing:.3px;
+}
+
+.global-stats{
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+}
+
+.wrap{max-width:1100px;margin:24px auto;padding:0 20px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+
+.card{
+    background:var(--card);
+    border-radius:16px;
+    padding:16px;
+    box-shadow:0 10px 30px rgba(0,0,0,.25);
+    border:1px solid rgba(255,255,255,.06);
+    transition:all 0.3s ease;
+    position:relative;
+    overflow:hidden;
+}
+
+.card:hover{
+    transform:translateY(-2px);
+    box-shadow:0 15px 40px rgba(0,0,0,.35);
+}
+
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0}
+
+.ip{font-family:monospace; color:#d1d6e0; font-size:13px}
+
+.pill{
+    padding:4px 10px;
+    border-radius:999px;
+    font-size:12px;
+    background:#1b2447;
+    color:#cdd7ff;
+    border:1px solid rgba(255,255,255,.08);
+    white-space:nowrap;
+}
+
+.rps{font-weight:700; color:var(--ok)}
+
+.ttl{color:var(--warn)}
+
+.mimosa{
+    position:relative;
+    height:120px;
+    display:grid;
+    place-items:center;
+    margin:8px 0;
+}
+
+.flower{
+    position:relative;
+    width:96px;
+    height:96px;
+    transition:transform .4s ease;
+}
+
+.core{
+    position:absolute;
+    left:50%;
+    top:50%;
+    transform:translate(-50%,-50%);
+    width:28px;
+    height:28px;
+    border-radius:50%;
+    background:#ffd866;
+    box-shadow:0 0 30px rgba(255,216,102,.5);
+}
+
+.petal{
+    --i:0;
+    position:absolute;
+    left:50%;
+    top:50%;
+    width:20px;
+    height:36px;
+    border-radius:20px;
+    background:#5dd39e;
+    transform-origin:50% 80px;
+    transform:rotate(calc(var(--i)*45deg)) translate(-50%,-80px) scaleY(1);
+    transition:transform .5s ease;
+    filter: drop-shadow(0 6px 10px rgba(0,0,0,.25));
+}
+
+.flower.folded .petal{
+    transform:rotate(calc(var(--i)*45deg)) translate(-50%,-80px) scaleY(0.2);
+}
+
+.mini-chart{
+    margin:8px 0;
+    background:rgba(0,0,0,.2);
+    border-radius:8px;
+    padding:4px;
+}
+
+.mini-chart svg{
+    width:100%;
+    height:40px;
+    border-radius:4px;
+}
+
+.reason{
+    color:#ffc0cb;
+    font-size:12px;
+    margin-top:6px;
+    min-height:14px;
+    font-style:italic;
+}
+
+/* Animations */
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.card{
+    animation:fadeIn 0.5s ease-out;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    header {
+        flex-direction:column;
+        align-items:flex-start;
+    }
+    
+    .global-stats {
+        width:100%;
+        justify-content:center;
+    }
+    
+    .grid {
+        grid-template-columns:1fr;
+    }
+}
+
+footer{
+    opacity:.7;
+    text-align:center;
+    margin:20px 0;
+    font-size:12px;
+    color:#bac4d6;
+}
+
+/* Indicateurs de statut */
+.status-indicator {
+    width:8px;
+    height:8px;
+    border-radius:50%;
+    display:inline-block;
+    margin-right:6px;
+}
+
+.status-indicator.open { background:var(--ok); }
+.status-indicator.tripped { background:var(--bad); animation:pulse 1s infinite; }
+
+/* Section monitoring par IP */
+.ip-monitoring-section {
+    margin-top: 32px;
+    padding: 20px;
+    background: var(--card);
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,.06);
+    box-shadow: 0 10px 30px rgba(0,0,0,.25);
+}
+
+.ip-monitoring-section h2 {
+    margin: 0 0 16px 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ok);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ip-monitoring {
+    max-height: 400px;
+    overflow-y: auto;
+    border-radius: 8px;
+    background: rgba(0,0,0,.2);
+    padding: 12px;
+}
+
+.no-ips {
+    text-align: center;
+    color: var(--muted);
+    font-style: italic;
+    padding: 20px;
+}
+
+/* Styles pour les entrées IP */
+.ip-entry {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    margin-bottom: 8px;
+    background: rgba(255,255,255,.05);
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,.1);
+    transition: all 0.3s ease;
+}
+
+.ip-entry:hover {
+    background: rgba(255,255,255,.1);
+    transform: translateY(-1px);
+}
+
+.ip-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ip-address {
+    font-weight: 600;
+    color: var(--text);
+    font-family: 'Courier New', monospace;
+}
+
+.ip-rps {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.ip-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+/* Symbolique de feuille */
+.leaf-container {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.leaf {
+    font-size: 24px;
+    transition: all 0.5s ease;
+    transform-origin: center;
+}
+
+.leaf.normal {
+    color: var(--ok);
+    transform: rotate(0deg) scale(1);
+}
+
+.leaf.warning {
+    color: var(--warn);
+    transform: rotate(-15deg) scale(1.1);
+    animation: leaf-warning 2s ease-in-out infinite;
+}
+
+.leaf.danger {
+    color: var(--bad);
+    transform: rotate(-45deg) scale(0.8);
+    animation: leaf-danger 1s ease-in-out infinite;
+}
+
+.leaf.blocked {
+    color: var(--bad);
+    transform: rotate(-90deg) scale(0.6);
+    animation: leaf-blocked 0.5s ease-in-out infinite;
+}
+
+@keyframes leaf-warning {
+    0%, 100% { transform: rotate(-15deg) scale(1.1); }
+    50% { transform: rotate(-25deg) scale(1.2); }
+}
+
+@keyframes leaf-danger {
+    0%, 100% { transform: rotate(-45deg) scale(0.8); }
+    50% { transform: rotate(-60deg) scale(0.9); }
+}
+
+@keyframes leaf-blocked {
+    0%, 100% { transform: rotate(-90deg) scale(0.6); }
+    50% { transform: rotate(-100deg) scale(0.7); }
+}
+
+/* Section historique des blocages */
+.blocking-log-section {
+    margin-top: 32px;
+    padding: 20px;
+    background: var(--card);
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,.06);
+    box-shadow: 0 10px 30px rgba(0,0,0,.25);
+}
+
+.blocking-log-section h2 {
+    margin: 0 0 16px 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--bad);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.blocking-log {
+    max-height: 300px;
+    overflow-y: auto;
+    border-radius: 8px;
+    background: rgba(0,0,0,.2);
+    padding: 12px;
+}
+
+.no-blockings {
+    text-align: center;
+    color: var(--muted);
+    font-style: italic;
+    padding: 20px;
+}
+
+.blocking-entry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    margin: 8px 0;
+    background: rgba(255,107,107,.1);
+    border: 1px solid rgba(255,107,107,.2);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    animation: slideInFromRight 0.5s ease-out;
+}
+
+.blocking-entry:hover {
+    background: rgba(255,107,107,.15);
+    transform: translateX(4px);
+}
+
+.blocking-entry.new {
+    border-left: 4px solid var(--bad);
+    animation: pulse 0.5s ease-out;
+}
+
+.blocking-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+}
+
+.blocking-ip {
+    font-family: monospace;
+    font-weight: 700;
+    color: #ff6b6b;
+    font-size: 14px;
+}
+
+.blocking-reason {
+    color: #ffc0cb;
+    font-size: 12px;
+    font-style: italic;
+}
+
+.blocking-time {
+    color: var(--muted);
+    font-size: 11px;
+    font-family: monospace;
+}
+
+.blocking-ttl {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    min-width: 80px;
+}
+
+.blocking-ttl-value {
+    color: var(--warn);
+    font-weight: 700;
+    font-size: 12px;
+    font-family: monospace;
+}
+
+.blocking-ttl-label {
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+/* Animation pour les nouvelles entrées */
+@keyframes slideInFromRight {
+    from {
+        opacity: 0;
+        transform: translateX(100px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Styles pour les entrées de blocage */
+.blocked-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    margin-bottom: 4px;
+    background: rgba(231, 76, 60, 0.1);
+    border-left: 3px solid var(--bad);
+    border-radius: 4px;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.blocked-entry:hover {
+    background: rgba(231, 76, 60, 0.2);
+}
+
+.blocked-entry.recovered {
+    background: rgba(39, 174, 96, 0.1);
+    border-left-color: var(--ok);
+}
+
+.blocked-entry.recovered:hover {
+    background: rgba(39, 174, 96, 0.2);
+}
+
+.blocked-ip {
+    font-weight: 600;
+    color: var(--text);
+}
+
+.blocked-time {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.blocked-reason {
+    color: var(--text);
+    font-size: 12px;
+}
+
+/* Scrollbar personnalisée pour le log */
+.blocking-log::-webkit-scrollbar {
+    width: 6px;
+}
+
+.blocking-log::-webkit-scrollbar-track {
+    background: rgba(0,0,0,.2);
+    border-radius: 3px;
+}
+
+.blocking-log::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,.2);
+    border-radius: 3px;
+}
+
+.blocking-log::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,.3);
+}
+</style>
+</head>
+<body>
+<header>
+<h1>🌿 Mimosa API — "je te touche, tu te refermes"</h1>
+<div class="config-info">
+    <span class="pill">Seuil RPS: <b id="config-rps">…</b></span>
+    <span class="pill">Diversité chemins: <b id="config-div">…</b></span>
+    <span class="pill">Repli: <b id="config-trip">…</b> ms</span>
+</div>
+<div class="live-metrics">
+    <span class="pill">Requêtes totales: <b id="th-rps">0</b></span>
+    <span class="pill">IPs actives: <b id="th-div">0</b></span>
+    <span class="pill">Repliées: <b id="th-trip">0</b></span>
+</div>
+</header>
+<div class="wrap">
+<div id="grid" class="grid"></div>
+
+<!-- Section monitoring par IP -->
+<div class="ip-monitoring-section">
+    <h2>🌿 Monitoring par IP</h2>
+    <div style="margin-bottom: 12px;">
+        <button onclick="clearIpMonitoring()" style="padding: 6px 12px; background: var(--warn); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px;">
+            🗑️ Effacer les IPs
+        </button>
+    </div>
+    <div id="ip-monitoring" class="ip-monitoring">
+        <div class="no-ips">Aucune activité récente</div>
+    </div>
+</div>
+
+<!-- Section historique des blocages -->
+<div class="blocking-log-section">
+    <h2>🚨 Historique des Blocages</h2>
+    <div id="blocking-log" class="blocking-log">
+        <div class="no-blockings">Aucun blocage récent</div>
+    </div>
+</div>
+
+<footer>
+    <div style="margin-bottom: 10px;">
+        <button onclick="testNormalRequests()" style="margin-right: 10px; padding: 8px 16px; background: var(--ok); color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Test Requêtes Normales
+        </button>
+        <button onclick="testNoisyRequests()" style="margin-right: 10px; padding: 8px 16px; background: var(--warn); color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Test Attaque (Diversité)
+        </button>
+        <button onclick="window.open('/ps5', '_blank')" style="margin-right: 10px; padding: 8px 16px; background: #003791; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            🎮 Test Réservation PS5
+        </button>
+        <button onclick="refreshDashboard()" style="padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Rafraîchir
+        </button>
+        <!-- <button onclick="debugTest()" style="padding: 8px 16px; background: #ff6b6b; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Debug Test
+        </button> -->
+    </div>
+    Frappez <code>/api/data</code> ou plusieurs <code>/api/noisy/{id}</code> pour déclencher un repli.
+</footer>
+</div>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+// Test de débogage immédiat
+console.log('🔧 HTML: Script de débogage chargé');
+console.log('🔧 HTML: Vérification des éléments DOM...');
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('🔧 HTML: DOM chargé');
+    const thRps = document.getElementById('th-rps');
+    const thDiv = document.getElementById('th-div');
+    const thTrip = document.getElementById('th-trip');
+    console.log('🔧 HTML: Éléments trouvés:', { thRps, thDiv, thTrip });
+    
+    // Test de mise à jour directe
+    if (thRps) {
+        thRps.textContent = 'TEST';
+        console.log('🔧 HTML: th-rps mis à jour avec "TEST"');
+    }
+    
+    // Test des boutons
+    console.log('🔧 HTML: Test des boutons...');
+    const debugButton = document.querySelector('button[onclick="debugTest()"]');
+    console.log('🔧 HTML: Bouton debug trouvé:', debugButton);
+    
+    if (debugButton) {
+        debugButton.addEventListener('click', function() {
+            console.log('🔧 HTML: Bouton debug cliqué!');
+            if (typeof window.debugTest === 'function') {
+                window.debugTest();
+            } else {
+                console.error('❌ debugTest n\'est pas disponible dans window');
+            }
+        });
+    }
+});
+
+// Fonction de test de débogage simple accessible depuis la console
+window.simpleDebug = function() {
+    console.log('🔧 === TEST DE DÉBOGAGE SIMPLE ===');
+    
+    // Test 1: Vérifier les éléments DOM
+    const thRps = document.getElementById('th-rps');
+    const thDiv = document.getElementById('th-div');
+    const thTrip = document.getElementById('th-trip');
+    
+    console.log('1️⃣ Éléments DOM:');
+    console.log('   th-rps:', thRps);
+    console.log('   th-div:', thDiv);
+    console.log('   th-trip:', thTrip);
+    
+    // Test 2: Mise à jour directe
+    if (thRps) {
+        thRps.textContent = 'DIRECT';
+        console.log('✅ th-rps mis à jour avec "DIRECT"');
+    }
+    
+    // Test 3: Vérifier les fonctions
+    console.log('2️⃣ Fonctions disponibles:');
+    console.log('   debugTest:', typeof window.debugTest);
+    console.log('   testNormalRequests:', typeof window.testNormalRequests);
+    
+    console.log('🔧 === FIN DU TEST SIMPLE ===');
+};
+
+console.log('🔧 HTML: Fonction simpleDebug disponible dans window.simpleDebug()');
+
+// Fonction de test WebSocket temporaire
+window.testWebSocket = function() {
+    console.log('🔧 === TEST WEBSOCKET TEMPORAIRE ===');
+    console.log('⚠️ Fonction temporaire - app.js pas encore chargé');
+    
+    // Vérifier si app.js est chargé
+    if (typeof window.debugTest === 'function') {
+        console.log('✅ app.js est chargé, utilise la vraie fonction');
+        // Appeler la vraie fonction testWebSocket
+        if (window._realTestWebSocket) {
+            window._realTestWebSocket();
+        } else {
+            console.log('⚠️ Vraie fonction pas encore définie');
+        }
+    } else {
+        console.log('❌ app.js pas encore chargé, attendez...');
+        console.log('   - debugTest disponible:', typeof window.debugTest);
+        console.log('   - testNormalRequests disponible:', typeof window.testNormalRequests);
+    }
+    
+    console.log('🔧 === FIN TEST WEBSOCKET TEMPORAIRE ===');
+};
+
+// Fonction de test simple
+window.quickTest = function() {
+    console.log('🔧 === TEST RAPIDE ===');
+    console.log('1️⃣ Vérification des éléments DOM:');
+    const thRps = document.getElementById('th-rps');
+    const thDiv = document.getElementById('th-div');
+    const thTrip = document.getElementById('th-trip');
+    console.log('   th-rps:', thRps);
+    console.log('   th-div:', thDiv);
+    console.log('   th-trip:', thTrip);
+    
+    if (thRps) {
+        thRps.textContent = 'QUICK';
+        console.log('✅ th-rps mis à jour avec "QUICK"');
+    }
+    
+    console.log('2️⃣ Vérification des fonctions:');
+    console.log('   debugTest:', typeof window.debugTest);
+    console.log('   testNormalRequests:', typeof window.testNormalRequests);
+    console.log('   testWebSocket:', typeof window.testWebSocket);
+    
+    console.log('🔧 === FIN TEST RAPIDE ===');
+};
+
+// Fonction de test WebSocket spécifique (sera définie dans app.js)
+window.testWebSocketConnection = function() {
+    console.log('🔧 === TEST CONNEXION WEBSOCKET TEMPORAIRE ===');
+    console.log('⚠️ Cette fonction sera définie dans app.js');
+    console.log('🔧 === FIN TEST CONNEXION WEBSOCKET TEMPORAIRE ===');
+};
+</script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
