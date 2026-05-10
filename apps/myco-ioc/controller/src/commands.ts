@@ -75,6 +75,106 @@ export function handleTrafficControl(
   }
 }
 
+// Démo scriptée : chorégraphie d'attaque + propagation + retour au calme.
+// Une seule démo à la fois (flag local au module).
+let demoInProgress = false;
+
+type DemoStep = {
+  delayMs: number;
+  message: string;
+  action?: (deps: CommandsDeps) => void;
+};
+
+function emitNarration(deps: CommandsDeps, step: number, total: number, message: string): void {
+  deps.broadcast({
+    type: "narration",
+    payload: { step, total, message, ts: Date.now() },
+  });
+  log.info("guided demo step", { step, total, message });
+}
+
+function pickAttackTargets(deps: CommandsDeps, n: number): string[] {
+  const ids = Array.from(deps.state.nodes.keys());
+  return ids.slice(0, n);
+}
+
+function fireAttack(deps: CommandsDeps, target: string, badIP = "203.0.113.66"): void {
+  const nc = deps.getNatsConnection();
+  if (!nc) return;
+  for (let i = 0; i < 30; i++) {
+    setTimeout(() => {
+      const ev = { nodeId: target, ts: Date.now(), src_ip: badIP, path: "/wp-login.php", status: 401, ua: "B4dB0t" };
+      nc.publish("traffic.http", deps.sc.encode(JSON.stringify(ev)));
+    }, i * 50);
+  }
+}
+
+export function runGuidedDemo(deps: CommandsDeps): void {
+  if (demoInProgress) {
+    log.warn("guided demo already in progress");
+    return;
+  }
+  const targets = pickAttackTargets(deps, 3);
+  if (targets.length === 0) {
+    log.warn("guided demo aborted - no node available");
+    return;
+  }
+  demoInProgress = true;
+
+  const steps: DemoStep[] = [
+    {
+      delayMs: 0,
+      message: "🌱 Démarrage : trafic légitime sur l'ensemble des nodes (mycélium au repos).",
+      action: d => publish(d, "traffic.control", { action: "normal", interval: 60, timestamp: Date.now() }),
+    },
+    {
+      delayMs: 5_000,
+      message: "👀 Surveillance active. Chaque arbre observe son propre flux ; aucune anomalie pour l'instant.",
+    },
+    {
+      delayMs: 10_000,
+      message: `⚡ Attaque login-burst sur ${targets[0]} depuis 203.0.113.66 — le node détecte localement.`,
+      action: d => fireAttack(d, targets[0]),
+    },
+    {
+      delayMs: 15_000,
+      message: "🌐 IOC partagé via le mycélium : le quorum est atteint, la liste de blocage se propage aux autres arbres.",
+    },
+    {
+      delayMs: 25_000,
+      message: targets.length > 1
+        ? `🛡️ Test : attaque sur ${targets.slice(1).join(", ")} — bloqués dès le premier paquet (IOC déjà appliqué).`
+        : "🛡️ IOC propagé, tous les nodes désormais protégés.",
+      action: d => {
+        for (const t of targets.slice(1)) fireAttack(d, t);
+      },
+    },
+    {
+      delayMs: 40_000,
+      message: "🌙 Retour au calme : les IOCs entrent en TTL countdown, le trafic redevient normal.",
+    },
+    {
+      delayMs: 50_000,
+      message: "🐌 Réduction du trafic au minimum.",
+      action: d => publish(d, "traffic.control", { action: "low", interval: 2000, timestamp: Date.now() }),
+    },
+    {
+      delayMs: 60_000,
+      message: "✅ Démo terminée. Tu peux relancer ou explorer librement.",
+    },
+  ];
+
+  steps.forEach((step, i) => {
+    setTimeout(() => {
+      emitNarration(deps, i + 1, steps.length, step.message);
+      if (step.action) step.action(deps);
+      if (i === steps.length - 1) {
+        demoInProgress = false;
+      }
+    }, step.delayMs);
+  });
+}
+
 function handleWSMessage(deps: CommandsDeps, raw: string): void {
   const data = JSON.parse(raw);
   if (data.type !== "command") return;
@@ -173,6 +273,10 @@ function handleWSMessage(deps: CommandsDeps, raw: string): void {
 
     case "trafficControl":
       handleTrafficControl(deps, data.command, data.targetNodeId);
+      break;
+
+    case "runGuidedDemo":
+      runGuidedDemo(deps);
       break;
   }
 }

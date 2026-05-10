@@ -495,6 +495,51 @@
             margin-top: 0.25rem;
         }
         
+        /* Narration bar (démo guidée) */
+        .narration-bar {
+            position: fixed;
+            left: 50%;
+            bottom: 24px;
+            transform: translateX(-50%) translateY(120%);
+            width: min(900px, calc(100% - 48px));
+            background: linear-gradient(135deg, #8e44ad 0%, #5b2c91 100%);
+            color: #fff;
+            padding: 1rem 1.5rem;
+            border-radius: 14px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+            z-index: 1500;
+            opacity: 0;
+            transition: transform .35s cubic-bezier(.2,.7,.2,1), opacity .35s;
+            font-size: 1rem;
+            line-height: 1.4;
+        }
+        .narration-bar.visible {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+        .narration-bar .narration-step {
+            font-size: 0.78rem;
+            opacity: 0.85;
+            margin-bottom: 0.35rem;
+            letter-spacing: 0.04em;
+        }
+        .narration-bar .narration-message {
+            font-weight: 500;
+        }
+        .narration-bar .narration-progress {
+            height: 4px;
+            margin-top: 0.6rem;
+            background: rgba(255,255,255,0.25);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .narration-bar .narration-progress > span {
+            display: block;
+            height: 100%;
+            background: #fff;
+            transition: width .4s ease;
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
             .dashboard-grid {
@@ -531,6 +576,7 @@
             <select id="attackTarget" style="padding: 0.5rem 0.75rem; border-radius: 25px; border: 1px solid #ccc; background: white; font-size: 0.9rem;">
                 <option value="">Cible : aléatoire</option>
             </select>
+            <button id="runGuidedDemo" class="traffic-btn" style="background: #8e44ad;">▶ Démo guidée</button>
         </div>
         <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9em; color: #666;">
             💡 Le trafic démarre arrêté - Utilisez les boutons pour le contrôler
@@ -716,6 +762,13 @@
     </div>
 
     <div class="tooltip" id="tooltip" style="display: none;"></div>
+
+    <!-- Bande narration de la démo guidée -->
+    <div class="narration-bar" id="narrationBar" role="status" aria-live="polite">
+      <div class="narration-step" id="narrationStep">Étape — / —</div>
+      <div class="narration-message" id="narrationMessage"></div>
+      <div class="narration-progress"><span id="narrationProgress" style="width:0%"></span></div>
+    </div>
 
     <script>
         // Global state
@@ -948,6 +1001,38 @@
                 sendTrafficCommand('attack');
                 updateTrafficButtonState('triggerAttack');
             });
+
+            const demoBtn = document.getElementById('runGuidedDemo');
+            if (demoBtn) {
+                demoBtn.addEventListener('click', () => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'command', action: 'runGuidedDemo' }));
+                        updateTrafficButtonState('runGuidedDemo');
+                    }
+                });
+            }
+        }
+
+        // Narration de la démo guidée (auto-hide ~10s après la dernière étape)
+        let narrationHideTimer = null;
+        function showNarration({ step, total, message }) {
+            const bar = document.getElementById('narrationBar');
+            const stepEl = document.getElementById('narrationStep');
+            const msgEl = document.getElementById('narrationMessage');
+            const progEl = document.getElementById('narrationProgress');
+            if (!bar || !stepEl || !msgEl || !progEl) return;
+
+            stepEl.textContent = `Étape ${step} / ${total}`;
+            msgEl.textContent = message;
+            progEl.style.width = `${Math.round((step / total) * 100)}%`;
+            bar.classList.add('visible');
+
+            if (narrationHideTimer) clearTimeout(narrationHideTimer);
+            // Si on est sur la dernière étape, on planifie un hide ; sinon on
+            // laisse la prochaine étape rafraîchir.
+            if (step >= total) {
+                narrationHideTimer = setTimeout(() => bar.classList.remove('visible'), 10000);
+            }
         }
         
         function sendTrafficCommand(command) {
@@ -1012,6 +1097,9 @@
                     break;
                 case 'slo_alert':
                     addSLOAlert(data.payload);
+                    break;
+                case 'narration':
+                    showNarration(data.payload);
                     break;
             }
         }
