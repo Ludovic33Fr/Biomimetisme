@@ -450,6 +450,25 @@ const httpServer = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(data);
     });
+  } else if (req.url === '/api/state') {
+    // Snapshot JSON pour les tests smoke et l'observabilité externe.
+    const snapshot = {
+      version: SYSTEM_VERSION,
+      nodes: Array.from(state.nodes.values()).map(n => ({
+        id: n.id, health: n.health, alerts: n.alerts, drops: n.drops,
+        lastSeen: n.lastSeen
+      })),
+      activeIOCs: Array.from(state.activeIOCs.values()).map(ioc => ({
+        kind: ioc.kind, value: ioc.value, source: ioc.source,
+        confidence: ioc.confidence, ttl_sec: ioc.ttl_sec,
+        startTime: ioc.startTime, endTime: ioc.endTime
+      })),
+      globalQuorum: state.globalQuorum,
+      floodMode: state.floodMode,
+      timestamp: Date.now()
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(snapshot));
   } else {
     res.writeHead(404);
     res.end('Not found');

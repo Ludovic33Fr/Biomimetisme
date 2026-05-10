@@ -1,0 +1,12 @@
+{
+  "name": "myco-ioc-tests",
+  "version": "2.3.3",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test smoke.mjs"
+  },
+  "dependencies": {
+    "nats": "^2.21.0"
+  }
+}
