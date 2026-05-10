@@ -1,6 +1,7 @@
 // node/src/index.ts
 import os from 'os';
 import { connect, StringCodec, NatsConnection, Subscription } from "nats";
+import { log } from "./log";
 
 type TrafficEvent = {
   nodeId: string;
@@ -111,7 +112,7 @@ function pubDrop(nc: NatsConnection, drop: DropMsg) {
 
 async function main() {
   const nc = await connect({ servers: NATS_URL });
-  console.log(`[${NODE_ID}] connected to ${NATS_URL}`);
+  log.info("connected to NATS", { node_id: NODE_ID, url: NATS_URL });
 
   // Presence: annonce périodique du nodeId
   setInterval(() => {
@@ -124,7 +125,7 @@ async function main() {
       // Calculer le TTL restant si l'IOC a un endTime
       const ttlSec = ioc.ttl_sec || BLOCK_TTL_SEC;
       applyIPBlock(ioc.value, ttlSec);
-      console.log(`[${NODE_ID}] applied shared IOC ip=${ioc.value} ttl=${ttlSec}s (from=${source})`);
+      log.info("applied shared IOC", { node_id: NODE_ID, ip: ioc.value, ttl_sec: ttlSec, source });
       
       // Envoyer un accusé de réception pour indiquer que l'IOC a été appliqué
       const iocKey = `${ioc.kind}|${ioc.value}`;
@@ -139,12 +140,12 @@ async function main() {
   // Synchronisation des IOC actifs au démarrage
   async function syncActiveIOCs() {
     try {
-      console.log(`[${NODE_ID}] Requesting active IOCs sync...`);
+      log.info("requesting active IOCs sync", { node_id: NODE_ID });
       const reply = await nc.request("ioc.sync.request", sc.encode(JSON.stringify({ nodeId: NODE_ID })), { timeout: 5000 });
       const response = JSON.parse(sc.decode(reply.data));
       
       if (response.iocs && Array.isArray(response.iocs)) {
-        console.log(`[${NODE_ID}] Received ${response.iocs.length} active IOC(s) from controller`);
+        log.info("received active IOCs from controller", { node_id: NODE_ID, count: response.iocs.length });
         for (const iocData of response.iocs) {
           const ioc: IOCMsg = {
             kind: iocData.kind,
@@ -159,7 +160,7 @@ async function main() {
         }
       }
     } catch (e) {
-      console.error(`[${NODE_ID}] Error syncing active IOCs:`, e);
+      log.error("error syncing active IOCs", { node_id: NODE_ID, err: e });
       // Continue even if sync fails - node will still receive future IOC shares
     }
   }
@@ -175,7 +176,7 @@ async function main() {
         const ioc = JSON.parse(sc.decode(m.data)) as IOCMsg;
         applyIOCAndAck(ioc, ioc.source);
       } catch (e) {
-        console.error(`[${NODE_ID}] error parsing ioc.share`, e);
+        log.error("error parsing ioc.share", { node_id: NODE_ID, err: e });
       }
     },
   });
@@ -226,22 +227,22 @@ async function main() {
           pubIOCLocal(nc, ioc);
           applyIPBlock(ioc.value, ioc.ttl_sec);
 
-          console.log(`[${NODE_ID}] ALERT ip=${ev.src_ip} count=${count} conf=${confidence.toFixed(2)} → IOC local`);
+          log.warn("ALERT - local IOC raised", { node_id: NODE_ID, ip: ev.src_ip, count_5s: count, confidence });
         }
       } catch (e) {
-        console.error(`[${NODE_ID}] error parsing traffic.http`, e);
+        log.error("error parsing traffic.http", { node_id: NODE_ID, err: e });
       }
     },
   });
 
   const shutdown = async () => {
-    console.log(`[${NODE_ID}] shutting down...`);
+    log.info("shutting down", { node_id: NODE_ID });
     try {
       subTraffic.unsubscribe();
       subIOCShare.unsubscribe();
       await nc.drain();
     } catch (e) {
-      console.error(`[${NODE_ID}] error on shutdown`, e);
+      log.error("error on shutdown", { node_id: NODE_ID, err: e });
     } finally {
       process.exit(0);
     }
@@ -249,10 +250,10 @@ async function main() {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
-  console.log(`[${NODE_ID}] ready. WINDOW_MS=${WINDOW_MS} THRESH=${THRESH} BLOCK_TTL_SEC=${BLOCK_TTL_SEC}`);
+  log.info("node ready", { node_id: NODE_ID, window_ms: WINDOW_MS, thresh: THRESH, block_ttl_sec: BLOCK_TTL_SEC });
 }
 
 main().catch((e) => {
-  console.error(`[${NODE_ID}] fatal error`, e);
+  log.error("fatal error", { node_id: NODE_ID, err: e });
   process.exit(1);
 });

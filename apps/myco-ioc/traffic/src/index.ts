@@ -1,5 +1,6 @@
 // traffic/src/index.ts
 import { connect, StringCodec } from "nats";
+import { log } from "./log";
 
 const NATS_URL = process.env.NATS_URL || "nats://bus:4222";
 const sc = StringCodec();
@@ -24,7 +25,7 @@ function pickNode(): string | null {
     .map(([id,_]) => id);
   if (active.length === 0) {
     if (!warnedNoNodes) {
-      console.log("[traffic] waiting for nodes (no nodes.hello received yet)");
+      log.info("waiting for nodes (no nodes.hello received yet)");
       warnedNoNodes = true;
     }
     return null;
@@ -54,7 +55,7 @@ function startNormalTraffic(interval: number = 60) {
     nc.publish("traffic.http", sc.encode(JSON.stringify(ev)));
   }, interval);
   
-  console.log(`[traffic] Normal traffic started (interval: ${interval}ms)`);
+  log.info("normal traffic started", { interval_ms: interval });
 }
 
 function startBurstTraffic() {
@@ -76,10 +77,10 @@ function startBurstTraffic() {
       nc.publish("traffic.http", sc.encode(JSON.stringify(ev)));
       await new Promise(r => setTimeout(r, 50));
     }
-    console.log(`[traffic] burst sent to ${target}`);
+    log.info("burst sent", { target });
   }, 20000);
   
-  console.log(`[traffic] Burst traffic started`);
+  log.info("burst traffic started");
 }
 
 function stopAllTraffic() {
@@ -91,12 +92,12 @@ function stopAllTraffic() {
     clearInterval(burstInterval);
     burstInterval = null;
   }
-  console.log(`[traffic] All traffic stopped`);
+  log.info("all traffic stopped");
 }
 
 (async()=>{
   nc = await connect({ servers: NATS_URL });
-  console.log("[traffic] connected");
+  log.info("connected to NATS", { url: NATS_URL });
 
   // écoute des nodes "hello"
   nc.subscribe("nodes.hello", {
@@ -113,7 +114,7 @@ function stopAllTraffic() {
     callback: (_e: any, m: any)=>{
       try {
         const control = JSON.parse(sc.decode(m.data));
-        console.log(`[traffic] Control command received: ${control.action}`);
+        log.info("control command received", { action: control.action });
         
         switch (control.action) {
           case 'stop':
@@ -133,15 +134,14 @@ function stopAllTraffic() {
             break;
         }
       } catch (e) {
-        console.error(`[traffic] Error parsing control command:`, e);
+        log.error("error parsing control command", { err: e });
       }
     }
   });
 
   // Démarrer arrêté par défaut - l'utilisateur peut démarrer le trafic via l'interface
-  console.log("[traffic] Service démarré - Trafic arrêté par défaut");
-  console.log("[traffic] Utilisez l'interface pour démarrer le trafic souhaité");
+  log.info("service ready, traffic idle by default");
 })().catch((e)=>{
-  console.error("[traffic] fatal error", e);
+  log.error("fatal error", { err: e });
   process.exit(1);
 });
