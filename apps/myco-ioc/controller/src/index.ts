@@ -15,6 +15,7 @@ import {
   calculateWeightedQuorum,
 } from "./state";
 import { createSLO, SLO } from "./slo";
+import { attachWSCommands } from "./commands";
 
 const NATS_URL = process.env.NATS_URL || "nats://bus:4222";
 const QUORUM = parseInt(process.env.QUORUM || "1", 10);
@@ -110,196 +111,15 @@ const httpServer = http.createServer((req, res) => {
 _wss = new WebSocketServer({ server: httpServer });
 const wss = _wss;
 
-function handleTrafficControl(command: string, targetNodeId?: string) {
-  log.info("traffic control command", { command, target_node_id: targetNodeId });
-  
-  switch (command) {
-    case 'stop':
-      // Arrêter le trafic en publiant un message de contrôle
-      if (natsConnection) {
-        natsConnection.publish("traffic.control", sc.encode(JSON.stringify({
-          action: 'stop',
-          timestamp: Date.now()
-        })));
-        log.info("traffic stopped");
-      }
-      break;
-      
-    case 'low':
-      // Trafic faible (1 requête toutes les 2 secondes)
-      if (natsConnection) {
-        natsConnection.publish("traffic.control", sc.encode(JSON.stringify({
-          action: 'low',
-          interval: 2000,
-          timestamp: Date.now()
-        })));
-        log.info("traffic mode: low");
-      }
-      break;
-      
-    case 'normal':
-      // Trafic normal (1 requête toutes les 60ms)
-      if (natsConnection) {
-        natsConnection.publish("traffic.control", sc.encode(JSON.stringify({
-          action: 'normal',
-          interval: 60,
-          timestamp: Date.now()
-        })));
-        log.info("traffic mode: normal");
-      }
-      break;
-      
-    case 'attack':
-      // Déclencher une attaque immédiate
-      if (natsConnection) {
-        const knownNodes = Array.from(state.nodes.keys());
-        const targetNode = (targetNodeId && state.nodes.has(targetNodeId))
-          ? targetNodeId
-          : knownNodes[Math.floor(Math.random() * knownNodes.length)];
-        if (!targetNode) {
-          log.warn("no attack target available");
-          break;
-        }
-        const badIP = '203.0.113.66';
-        
-        // Envoyer 30 requêtes d'attaque
-        for (let i = 0; i < 30; i++) {
-          setTimeout(() => {
-            const attackEvent = {
-              nodeId: targetNode,
-              ts: Date.now(),
-              src_ip: badIP,
-              path: '/wp-login.php',
-              status: 401,
-              ua: 'B4dB0t'
-            };
-            natsConnection.publish("traffic.http", sc.encode(JSON.stringify(attackEvent)));
-          }, i * 50); // 50ms entre chaque requête
-        }
-        log.info("attack triggered", { target_node_id: targetNode });
-      }
-      break;
-      
-    default:
-      log.warn("unknown traffic control command", { command });
-  }
-}
+// Référence partagée vers la connexion NATS — assignée par le bloc
+// async d'initialisation plus bas. Les commands.ts y accède via getter.
+let natsConnection: any = null;
 
-// Handle WebSocket connections and commands
-let natsConnection: any = null; // Store NATS connection globally
-
-wss.on('connection', (ws) => {
-  log.info("websocket client connected");
-  
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message.toString());
-      
-      if (data.type === 'command') {
-        switch (data.action) {
-          case 'updateQuorum':
-            state.globalQuorum = data.value;
-            log.info("global quorum updated", { quorum: data.value });
-            break;
-          case 'expireIOC':
-            const iocKey = `${data.kind}|${data.value}`;
-            state.activeIOCs.delete(iocKey);
-            log.info("IOC expired", { ioc_key: iocKey });
-            break;
-          case 'extendIOC':
-            const extendKey = `${data.kind}|${data.value}`;
-            const ioc = state.activeIOCs.get(extendKey);
-            if (ioc) {
-              ioc.endTime += 60000; // +60 seconds
-              state.activeIOCs.set(extendKey, ioc);
-              log.info("IOC extended", { ioc_key: extendKey });
-            }
-            break;
-          case 'quarantineIOC':
-            const quarantineKey = `${data.kind}|${data.value}`;
-            const quarantineIOC = state.activeIOCs.get(quarantineKey);
-            if (quarantineIOC) {
-              quarantineIOC.endTime = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
-              state.activeIOCs.set(quarantineKey, quarantineIOC);
-              log.info("IOC quarantined", { ioc_key: quarantineKey });
-            }
-            break;
-          case 'simulateFalsePositive':
-            // Simulate a false positive for demo purposes
-            const fpNodeId = data.nodeId || 'node-1';
-            const fpIOC = {
-              kind: 'ip' as const,
-              value: '192.168.1.100',
-              reason: 'Simulation FP',
-              source: fpNodeId,
-              confidence: 95,
-              ttl_sec: 60,
-              firstSeen: Date.now()
-            };
-            if (natsConnection) {
-              natsConnection.publish("ioc.local", sc.encode(JSON.stringify(fpIOC)));
-              log.info("FP simulation triggered", { node_id: fpNodeId });
-            } else {
-              log.warn("NATS connection not available for simulation");
-            }
-            break;
-          case 'simulateIOCFlood':
-            // Simulate multiple IOC.local events for flood detection
-            const floodNodeId = 'node-flood';
-            for (let i = 0; i < 15; i++) {
-              const floodIOC = {
-                kind: 'ip' as const,
-                value: `192.168.1.${100 + i}`,
-                reason: 'Simulation Flood',
-                source: floodNodeId,
-                confidence: 80,
-                ttl_sec: 30,
-                firstSeen: Date.now()
-              };
-              if (natsConnection) {
-                natsConnection.publish("ioc.local", sc.encode(JSON.stringify(floodIOC)));
-              }
-            }
-            log.info("IOC flood simulation triggered");
-            break;
-          case 'simulateNodeIsolation':
-            // Simulate a node going offline
-            const isolatedNodeId = 'node-isolated';
-            const isolatedNode = state.nodes.get(isolatedNodeId) || {
-              id: isolatedNodeId,
-              alerts: 0,
-              drops: 0,
-              health: "ok" as const,
-              lastSeen: Date.now(),
-              alerts_1m: 0,
-              drops_1m: 0,
-              lastHeartbeat: Date.now() - 20000, // 20s ago
-              blocklistEntries: 0,
-              iocAcks: new Map(),
-              reputation: 0.5
-            };
-            isolatedNode.health = "isolated";
-            state.nodes.set(isolatedNodeId, isolatedNode);
-            broadcast({type:"event", payload:{kind:"node_isolated", nodeId: isolatedNodeId, reason: "Simulation isolation"}});
-            log.info("node isolation simulation triggered", { node_id: isolatedNodeId });
-            break;
-          case 'toggleFailMode':
-            state.failMode = state.failMode === 'fail-open' ? 'fail-closed' : 'fail-open';
-            log.info("fail-mode changed", { fail_mode: state.failMode });
-            break;
-          case 'trafficControl':
-            handleTrafficControl(data.command, data.targetNodeId);
-            break;
-        }
-      }
-    } catch (e) {
-      log.error("error parsing WS command", { err: e });
-    }
-  });
-  
-  ws.on('close', () => {
-    log.info("websocket client disconnected");
-  });
+attachWSCommands(wss, {
+  state,
+  sc,
+  broadcast,
+  getNatsConnection: () => natsConnection,
 });
 
 // Nettoyage périodique des IOCs expirés et vérifications SLO
