@@ -116,3 +116,6 @@ dist
 # Temporary folders
 tmp/
 temp/
+
+# Claude Code session-local settings
+.claude/
