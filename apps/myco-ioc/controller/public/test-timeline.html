@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Timeline</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .timeline-container { max-height: 400px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; }
+        .timeline-filters { display: flex; gap: 10px; margin-bottom: 10px; }
+        .filter-btn { padding: 5px 10px; border: 1px solid #ccc; background: white; cursor: pointer; }
+        .filter-btn.active { background: #007bff; color: white; }
+        .timeline-event { padding: 5px; margin: 2px 0; border-left: 3px solid #ccc; background: #f8f9fa; }
+        .timeline-event.alert { border-left-color: #dc3545; }
+        .timeline-event.ioc-local { border-left-color: #ffc107; }
+        .timeline-event.ioc-share { border-left-color: #28a745; }
+        .timeline-event.drop { border-left-color: #17a2b8; }
+    </style>
+</head>
+<body>
+    <h1>Test Timeline Filters</h1>
+    
+    <div class="timeline-filters">
+        <button class="filter-btn active" data-filter="all">Tous</button>
+        <button class="filter-btn" data-filter="alert">Alertes</button>
+        <button class="filter-btn" data-filter="ioc-local">IOC Local</button>
+        <button class="filter-btn" data-filter="ioc-share">IOC Partagé</button>
+        <button class="filter-btn" data-filter="drop">Drops</button>
+    </div>
+    
+    <div class="timeline-container" id="timelineContainer">
+        <p>Aucun événement</p>
+    </div>
+
+    <script>
+        let events = [];
+        
+        // Add test events
+        events = [
+            {kind:"hello", nodeId:"demo-node-1", ts: Date.now()},
+            {kind:"alert", nodeId:"demo-node-1", reason:"Test attack detected", ts: Date.now()},
+            {kind:"ioc.local", iocKind:"ip", value:"192.168.1.50", source:"demo-node-1", reason:"Test IOC", ts: Date.now()},
+            {kind:"ioc.share", iocKind:"ip", value:"192.168.1.50", source:"demo-node-1", reason:"Test IOC shared", ts: Date.now()},
+            {kind:"drop", nodeId:"demo-node-1", value:"192.168.1.50", ts: Date.now()}
+        ];
+        
+        function updateTimeline() {
+            const container = document.getElementById('timelineContainer');
+            const activeFilters = Array.from(document.querySelectorAll('.filter-btn.active')).map(btn => btn.dataset.filter);
+            
+            let filteredEvents = events;
+            if (!activeFilters.includes('all')) {
+                filteredEvents = events.filter(event => {
+                    // Map event types to filter names
+                    const eventType = event.kind || event.eventType;
+                    if (eventType === 'ioc.local') return activeFilters.includes('ioc-local');
+                    if (eventType === 'ioc.share') return activeFilters.includes('ioc-share');
+                    return activeFilters.includes(eventType);
+                });
+            }
+            
+            if (filteredEvents.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #6c757d;">Aucun événement</p>';
+                return;
+            }
+            
+            container.innerHTML = filteredEvents.map(event => {
+                let eventText = '';
+                let eventClass = 'timeline-event';
+                const eventType = event.kind || event.eventType;
+                
+                switch (eventType) {
+                    case 'hello':
+                        eventText = `🟢 Node ${event.nodeId} connecté`;
+                        break;
+                    case 'alert':
+                        eventText = `🚨 Alerte sur ${event.nodeId}: ${event.reason || 'Attaque détectée'}`;
+                        eventClass += ' alert';
+                        break;
+                    case 'drop':
+                        eventText = `🛡️ Blocage sur ${event.nodeId}: ${event.value || 'Trafic bloqué'}`;
+                        eventClass += ' drop';
+                        break;
+                    case 'ioc.local':
+                        eventText = `🔍 IOC local détecté: ${event.iocKind || event.kind} ${event.value}`;
+                        eventClass += ' ioc-local';
+                        break;
+                    case 'ioc.share':
+                        eventText = `📡 IOC partagé: ${event.iocKind || event.kind} ${event.value}`;
+                        eventClass += ' ioc-share';
+                        break;
+                    default:
+                        eventText = `📝 ${eventType}: ${JSON.stringify(event)}`;
+                }
+                
+                return `
+                    <div class="${eventClass}">
+                        <div>${eventText}</div>
+                        <div class="timestamp">${new Date(event.timestamp || event.ts || Date.now()).toLocaleTimeString()}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // Event handlers
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                updateTimeline();
+            });
+        });
+        
+        // Initialize
+        updateTimeline();
+    </script>
+</body>
+</html>
