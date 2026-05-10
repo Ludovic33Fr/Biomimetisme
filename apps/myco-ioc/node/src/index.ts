@@ -118,22 +118,62 @@ async function main() {
     nc.publish("nodes.hello", sc.encode(JSON.stringify({ nodeId: NODE_ID, ts: now() })));
   }, 5000);
 
+  // Fonction pour appliquer un IOC et envoyer l'ACK
+  function applyIOCAndAck(ioc: IOCMsg, source: string) {
+    if (ioc.kind === "ip") {
+      // Calculer le TTL restant si l'IOC a un endTime
+      const ttlSec = ioc.ttl_sec || BLOCK_TTL_SEC;
+      applyIPBlock(ioc.value, ttlSec);
+      console.log(`[${NODE_ID}] applied shared IOC ip=${ioc.value} ttl=${ttlSec}s (from=${source})`);
+      
+      // Envoyer un accusé de réception pour indiquer que l'IOC a été appliqué
+      const iocKey = `${ioc.kind}|${ioc.value}`;
+      nc.publish(`ack.${NODE_ID}`, sc.encode(JSON.stringify({
+        nodeId: NODE_ID,
+        iocKey: iocKey,
+        ts: now()
+      })));
+    }
+  }
+
+  // Synchronisation des IOC actifs au démarrage
+  async function syncActiveIOCs() {
+    try {
+      console.log(`[${NODE_ID}] Requesting active IOCs sync...`);
+      const reply = await nc.request("ioc.sync.request", sc.encode(JSON.stringify({ nodeId: NODE_ID })), { timeout: 5000 });
+      const response = JSON.parse(sc.decode(reply.data));
+      
+      if (response.iocs && Array.isArray(response.iocs)) {
+        console.log(`[${NODE_ID}] Received ${response.iocs.length} active IOC(s) from controller`);
+        for (const iocData of response.iocs) {
+          const ioc: IOCMsg = {
+            kind: iocData.kind,
+            value: iocData.value,
+            reason: iocData.reason || "synced",
+            source: iocData.source || "controller",
+            confidence: iocData.confidence || 0.8,
+            ttl_sec: iocData.ttl_sec || BLOCK_TTL_SEC,
+            firstSeen: iocData.firstSeen || now()
+          };
+          applyIOCAndAck(ioc, "controller-sync");
+        }
+      }
+    } catch (e) {
+      console.error(`[${NODE_ID}] Error syncing active IOCs:`, e);
+      // Continue even if sync fails - node will still receive future IOC shares
+    }
+  }
+
+  // Synchroniser les IOC actifs au démarrage (après un court délai pour s'assurer que NATS est prêt)
+  setTimeout(() => {
+    syncActiveIOCs();
+  }, 2000);
+
   const subIOCShare: Subscription = nc.subscribe("ioc.share", {
     callback: (_err, m) => {
       try {
         const ioc = JSON.parse(sc.decode(m.data)) as IOCMsg;
-        if (ioc.kind === "ip") {
-          applyIPBlock(ioc.value, ioc.ttl_sec);
-          console.log(`[${NODE_ID}] applied shared IOC ip=${ioc.value} ttl=${ioc.ttl_sec}s (from=${ioc.source})`);
-          
-          // Envoyer un accusé de réception pour indiquer que l'IOC a été appliqué
-          const iocKey = `${ioc.kind}|${ioc.value}`;
-          nc.publish(`ack.${NODE_ID}`, sc.encode(JSON.stringify({
-            nodeId: NODE_ID,
-            iocKey: iocKey,
-            ts: now()
-          })));
-        }
+        applyIOCAndAck(ioc, ioc.source);
       } catch (e) {
         console.error(`[${NODE_ID}] error parsing ioc.share`, e);
       }
