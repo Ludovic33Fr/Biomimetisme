@@ -17,11 +17,19 @@ let burstInterval: NodeJS.Timeout | null = null;
 // Variable globale pour la connexion NATS
 let nc: any = null;
 
-function pickNode(): string {
+let warnedNoNodes = false;
+function pickNode(): string | null {
   const active = Array.from(nodes.entries())
     .filter(([_,ts]) => (now() - ts) < 20000)
     .map(([id,_]) => id);
-  if (active.length === 0) return "node-1";
+  if (active.length === 0) {
+    if (!warnedNoNodes) {
+      console.log("[traffic] waiting for nodes (no nodes.hello received yet)");
+      warnedNoNodes = true;
+    }
+    return null;
+  }
+  warnedNoNodes = false;
   return active[Math.floor(Math.random() * active.length)];
 }
 
@@ -34,6 +42,7 @@ function startNormalTraffic(interval: number = 60) {
   
   normalInterval = setInterval(() => {
     const nodeId = pickNode();
+    if (!nodeId) return;
     const ev = {
       nodeId,
       ts: now(),
@@ -53,6 +62,7 @@ function startBurstTraffic() {
   
   burstInterval = setInterval(async () => {
     const target = pickNode();
+    if (!target) return;
     const badIP = "203.0.113.66";
     for (let i = 0; i < 30; i++) {
       const ev = {

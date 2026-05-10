@@ -528,6 +528,9 @@
             <button id="lowTraffic" class="traffic-btn" style="background: #27ae60;">🐌 Trafic Faible</button>
             <button id="normalTraffic" class="traffic-btn" style="background: #3498db;">🚗 Trafic Normal</button>
             <button id="triggerAttack" class="traffic-btn" style="background: #f39c12;">⚡ Attaque</button>
+            <select id="attackTarget" style="padding: 0.5rem 0.75rem; border-radius: 25px; border: 1px solid #ccc; background: white; font-size: 0.9rem;">
+                <option value="">Cible : aléatoire</option>
+            </select>
         </div>
         <div style="text-align: center; margin-top: 0.5rem; font-size: 0.9em; color: #666;">
             💡 Le trafic démarre arrêté - Utilisez les boutons pour le contrôler
@@ -731,59 +734,8 @@
             initializeCoverageChart();
             initializeControls();
             connectWebSocket();
-            
-            // Check for isolated nodes every 5 seconds
-            setInterval(checkNodeIsolation, 5000);
         });
-        
-        function checkNodeIsolation() {
-            const now = Date.now();
-            const isolationTimeout = 30000; // 30 seconds
-            
-            for (const [nodeId, node] of nodes) {
-                const timeSinceLastSeen = now - (node.lastSeen || 0);
-                
-                // Déterminer l'état de santé basé uniquement sur lastSeen
-                const shouldBeIsolated = timeSinceLastSeen > isolationTimeout;
-                const currentlyIsolated = node.health === 'isolated';
-                
-                if (shouldBeIsolated && !currentlyIsolated) {
-                    updateNodeStatus(nodeId, { health: 'isolated' });
-                    addEvent({
-                        kind: 'node_isolated',
-                        nodeId: nodeId,
-                        reason: 'No activity for ' + Math.round(timeSinceLastSeen/1000) + 's',
-                        ts: now
-                    });
-                    // Ajouter un événement de diagnostic
-                    addDiagnosticEvent(nodeId, 'ISOLATED', {
-                        reason: 'Timeout',
-                        source: 'frontend-check',
-                        timeSinceLastSeenSec: Math.round(timeSinceLastSeen/1000),
-                        lastSeen: node.lastSeen ? new Date(node.lastSeen).toLocaleTimeString() : 'N/A',
-                        isolationThresholdSec: 30,
-                        alerts: node.alerts || 0,
-                        drops: node.drops || 0
-                    });
-                } else if (!shouldBeIsolated && currentlyIsolated) {
-                    updateNodeStatus(nodeId, { health: 'ok' });
-                    addEvent({
-                        kind: 'node_reconnected',
-                        nodeId: nodeId,
-                        reason: 'Node reconnected',
-                        ts: now
-                    });
-                    // Ajouter un événement de diagnostic
-                    addDiagnosticEvent(nodeId, 'RECONNECTED', {
-                        reason: 'Activity restored',
-                        source: 'frontend-check',
-                        timeSinceLastSeenSec: Math.round(timeSinceLastSeen/1000),
-                        lastSeen: node.lastSeen ? new Date(node.lastSeen).toLocaleTimeString() : 'N/A'
-                    });
-                }
-            }
-        }
-        
+
         function initializeNetworkGraph() {
             const svg = d3.select('#networkGraph');
             const width = 800;
@@ -1000,25 +952,40 @@
         
         function sendTrafficCommand(command) {
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
+                const msg = {
                     type: 'command',
                     action: 'trafficControl',
                     command: command
-                }));
-                console.log(`Traffic command sent: ${command}`);
+                };
+                if (command === 'attack') {
+                    const sel = document.getElementById('attackTarget');
+                    if (sel && sel.value) msg.targetNodeId = sel.value;
+                }
+                ws.send(JSON.stringify(msg));
+                console.log(`Traffic command sent: ${command}${msg.targetNodeId ? ' -> ' + msg.targetNodeId : ''}`);
             } else {
                 console.error('WebSocket not connected');
             }
         }
-        
+
         function updateTrafficButtonState(activeButtonId) {
             // Remove active class from all buttons
             document.querySelectorAll('.traffic-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
-            
+
             // Add active class to clicked button
             document.getElementById(activeButtonId).classList.add('active');
+        }
+
+        function refreshAttackTargetOptions() {
+            const sel = document.getElementById('attackTarget');
+            if (!sel) return;
+            const previous = sel.value;
+            const ids = Array.from(nodes.keys()).sort();
+            sel.innerHTML = '<option value="">Cible : aléatoire</option>' +
+                ids.map(id => `<option value="${id}">${id}</option>`).join('');
+            if (ids.includes(previous)) sel.value = previous;
         }
         
         function handleMessage(data) {
@@ -1099,6 +1066,7 @@
             
             console.log(`After updateNodes, total nodes: ${nodes.size}`);
             updateNetworkGraph();
+            refreshAttackTargetOptions();
         }
         
         function updateNodeStatus(nodeId, updates) {
@@ -1767,8 +1735,92 @@
         
         function simulateNodeIsolation() {
             console.log('Simulating node isolation...');
-            // This would simulate a node going offline
-            alert('Simulation Isolation - Un nœud va être marqué comme isolé...');
+            
+            // Trouver un nœud existant à isoler
+            const existingNodes = Array.from(nodes.values()).filter(node => 
+                !node.id.startsWith('test-') && node.health !== 'isolated'
+            );
+            
+            if (existingNodes.length === 0) {
+                console.log('No existing nodes available for isolation simulation');
+                alert('Aucun nœud existant disponible pour la simulation d\'isolation');
+                return;
+            }
+            
+            // Choisir le premier nœud disponible
+            const targetNode = existingNodes[0];
+            const nodeId = targetNode.id;
+            console.log(`Simulating isolation of existing node: ${nodeId}`);
+            
+            // Sauvegarder l'état original du nœud
+            const originalState = {
+                health: targetNode.health,
+                lastSeen: targetNode.lastSeen,
+                lastHeartbeat: targetNode.lastHeartbeat
+            };
+            
+            // Simuler l'isolation après un court délai
+            setTimeout(() => {
+                console.log(`Simulating isolation of node ${nodeId}...`);
+                if (nodes.has(nodeId)) {
+                    // Marquer le nœud comme isolé en modifiant lastSeen pour qu'il soit ancien
+                    const oldLastSeen = Date.now() - 60000; // 60 secondes dans le passé
+                    updateNodeStatus(nodeId, { 
+                        health: 'isolated',
+                        lastSeen: oldLastSeen,
+                        lastHeartbeat: oldLastSeen
+                    });
+                    
+                    // Ajouter un événement d'isolation
+                    addEvent({
+                        kind: 'node_isolated',
+                        nodeId: nodeId,
+                        reason: 'Simulation d\'isolation - Pas d\'activité depuis 60s',
+                        ts: Date.now()
+                    });
+                    
+                    // Ajouter un événement de diagnostic
+                    addDiagnosticEvent(nodeId, 'ISOLATED', {
+                        reason: 'Simulation',
+                        source: 'simulation',
+                        timeSinceLastSeenSec: 60,
+                        lastSeen: new Date(oldLastSeen).toLocaleTimeString(),
+                        isolationThresholdSec: 30,
+                        alerts: targetNode.alerts || 0,
+                        drops: targetNode.drops || 0,
+                        originalHealth: originalState.health
+                    });
+                }
+            }, 1000);
+            
+            // Simuler la reconnexion après 5 secondes
+            setTimeout(() => {
+                console.log(`Simulating reconnection of node ${nodeId}...`);
+                if (nodes.has(nodeId)) {
+                    updateNodeStatus(nodeId, { 
+                        health: originalState.health, // Restaurer l'état original
+                        lastSeen: Date.now(),
+                        lastHeartbeat: Date.now()
+                    });
+                    
+                    // Ajouter un événement de reconnexion
+                    addEvent({
+                        kind: 'node_reconnected',
+                        nodeId: nodeId,
+                        reason: 'Simulation de reconnexion - Heartbeat restauré',
+                        ts: Date.now()
+                    });
+                    
+                    // Ajouter un événement de diagnostic
+                    addDiagnosticEvent(nodeId, 'RECONNECTED', {
+                        reason: 'Simulation',
+                        source: 'simulation',
+                        timeSinceLastSeenSec: 0,
+                        lastSeen: new Date().toLocaleTimeString(),
+                        restoredHealth: originalState.health
+                    });
+                }
+            }, 5000);
         }
         
         function toggleFailMode() {

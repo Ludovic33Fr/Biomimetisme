@@ -11,8 +11,9 @@ const DEFAULT_TTL = parseInt(process.env.DEFAULT_TTL_SEC || "180", 10);
 const WS_PORT = parseInt(process.env.WS_PORT || "8080", 10);
 const HTTP_PORT = parseInt(process.env.HTTP_PORT || "3000", 10);
 
-// Version du système - s'incrémente à chaque modification majeure
-const SYSTEM_VERSION = "2.3.3";
+// Version du système - lue depuis package.json (source unique)
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"));
+const SYSTEM_VERSION = pkg.version;
 const BUILD_TIMESTAMP = new Date().toISOString();
 
 // SLO/SLA Configuration
@@ -40,7 +41,7 @@ type NodeState = {
   id: string; 
   alerts: number; 
   drops: number; 
-  health: "ok"|"protected"|"isolated"|"drift";
+  health: "ok"|"protected"|"isolated";
   lastSeen: number;
   alerts_1m: number;
   drops_1m: number;
@@ -455,8 +456,8 @@ const httpServer = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: httpServer });
 
-function handleTrafficControl(command: string) {
-  console.log(`[Traffic Control] Commande reçue: ${command}`);
+function handleTrafficControl(command: string, targetNodeId?: string) {
+  console.log(`[Traffic Control] Commande reçue: ${command}${targetNodeId ? ` (cible: ${targetNodeId})` : ""}`);
   
   switch (command) {
     case 'stop':
@@ -497,7 +498,14 @@ function handleTrafficControl(command: string) {
     case 'attack':
       // Déclencher une attaque immédiate
       if (natsConnection) {
-        const targetNode = Array.from(state.nodes.keys())[0] || 'node-1';
+        const knownNodes = Array.from(state.nodes.keys());
+        const targetNode = (targetNodeId && state.nodes.has(targetNodeId))
+          ? targetNodeId
+          : knownNodes[Math.floor(Math.random() * knownNodes.length)];
+        if (!targetNode) {
+          console.log('[Traffic Control] Aucune cible disponible pour l\'attaque');
+          break;
+        }
         const badIP = '203.0.113.66';
         
         // Envoyer 30 requêtes d'attaque
@@ -631,7 +639,7 @@ wss.on('connection', (ws) => {
             console.log(`Mode de fail-over changé: ${state.failMode}`);
             break;
           case 'trafficControl':
-            handleTrafficControl(data.command);
+            handleTrafficControl(data.command, data.targetNodeId);
             break;
         }
       }
@@ -734,6 +742,48 @@ setInterval(() => {
   // Démarrer le serveur HTTP
   httpServer.listen(HTTP_PORT, () => {
     console.log(`[controller] HTTP server running on port ${HTTP_PORT}`);
+  });
+
+  // Synchronisation des IOC actifs pour les nouveaux nœuds
+  await nc.subscribe("ioc.sync.request", {
+    callback: async (_e, m) => {
+      try {
+        const request = JSON.parse(sc.decode(m.data));
+        const nodeId = request.nodeId || "unknown";
+        const now = Date.now();
+        
+        // Préparer la liste des IOC actifs (non expirés)
+        const activeIOCsList = Array.from(state.activeIOCs.entries())
+          .filter(([_, ioc]) => now < ioc.endTime)
+          .map(([key, ioc]) => {
+            // Calculer le TTL restant en secondes
+            const remainingTtlSec = Math.max(0, Math.floor((ioc.endTime - now) / 1000));
+            return {
+              kind: ioc.kind,
+              value: ioc.value,
+              reason: ioc.reason,
+              source: ioc.source,
+              confidence: ioc.confidence,
+              ttl_sec: remainingTtlSec,
+              firstSeen: ioc.firstSeen
+            };
+          });
+        
+        const response = {
+          nodeId: nodeId,
+          iocs: activeIOCsList,
+          timestamp: now
+        };
+        
+        // Répondre avec les IOC actifs
+        if (m.reply) {
+          nc.publish(m.reply, sc.encode(JSON.stringify(response)));
+          console.log(`[controller] Sent ${activeIOCsList.length} active IOC(s) to ${nodeId} for sync`);
+        }
+      } catch (err) {
+        console.error("[controller] Error handling IOC sync request:", err);
+      }
+    }
   });
 
   // Découverte des nodes
@@ -881,37 +931,6 @@ setInterval(() => {
         nc.publish("ioc.share", sc.encode(JSON.stringify(shared)));
         broadcast({type:"event", payload:{kind:"ioc.share", iocKind: shared.kind, value: shared.value, reason: shared.reason, source: shared.source, confidence: shared.confidence, ttl_sec: shared.ttl_sec, firstSeen: shared.firstSeen}});
       }
-    }
-  });
-
-  // Heartbeat monitoring
-  await nc.subscribe("hb.*", {
-    callback: (_e, m) => {
-      try {
-        const heartbeat = JSON.parse(sc.decode(m.data));
-        const nodeId = heartbeat.nodeId;
-        const now = Date.now();
-        
-        const node = state.nodes.get(nodeId);
-        if (node) {
-          node.lastHeartbeat = now;
-          node.lastSeen = now;
-          
-          // Check if node was isolated and came back
-          if (node.health === "isolated") {
-            node.health = "ok";
-            addSLOAlert({
-              type: "node_isolated",
-              nodeId: nodeId,
-              timestamp: now,
-              severity: "warning",
-              message: `Nœud ${nodeId} reconnecté`
-            });
-          }
-        }
-        
-        broadcast({type:"event", payload:{kind:"heartbeat", nodeId, ts: heartbeat.ts}});
-      } catch (err) { /* ignore */ }
     }
   });
 

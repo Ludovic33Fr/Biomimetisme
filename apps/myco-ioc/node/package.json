@@ -1,6 +1,6 @@
 {
   "name": "myco-node",
-  "version": "0.1.0",
+  "version": "2.3.3",
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.json",

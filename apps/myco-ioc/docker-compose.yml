@@ -1,13 +1,23 @@
 services:
   bus:
-    image: nats:2.10
+    image: nats:2.10-alpine
+    restart: unless-stopped
     ports:
       - "4222:4222"   # client
       - "8222:8222"   # monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8222/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   node:
     build: ./node
-    depends_on: [bus]
+    restart: unless-stopped
+    depends_on:
+      bus:
+        condition: service_healthy
     environment:
       NATS_URL: nats://bus:4222
       # NODE_ID is optional; will default to container hostname
@@ -19,7 +29,10 @@ services:
 
   controller:
     build: ./controller
-    depends_on: [bus]
+    restart: unless-stopped
+    depends_on:
+      bus:
+        condition: service_healthy
     environment:
       NATS_URL: nats://bus:4222
       QUORUM: "1"
@@ -30,11 +43,17 @@ services:
 
   traffic:
     build: ./traffic
-    depends_on: [bus]
+    restart: unless-stopped
+    depends_on:
+      bus:
+        condition: service_healthy
     environment:
       NATS_URL: nats://bus:4222
 
   natsbox:
     image: synadia/nats-box
-    depends_on: [bus]
+    restart: unless-stopped
+    depends_on:
+      bus:
+        condition: service_healthy
     entrypoint: ["/bin/sh","-lc","sleep infinity"]
