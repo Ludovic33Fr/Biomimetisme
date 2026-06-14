@@ -22,7 +22,28 @@
         h1 {
             color: #333;
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 15px;
+        }
+        .nav-tabs {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        .nav-tab {
+            padding: 0.3rem 0.9rem;
+            background: transparent;
+            border: 1px solid #007bff;
+            color: #007bff;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .nav-tab:hover, .nav-tab.active {
+            background: #007bff;
+            color: white;
         }
         .status {
             display: grid;
@@ -124,6 +145,10 @@
 
     <div class="container">
         <h1>🌐 Myco-IOC Controller</h1>
+        <div class="nav-tabs">
+            <a href="/" class="nav-tab active">Simple</a>
+            <a href="/visual" class="nav-tab">Visuel</a>
+        </div>
         <div id="versionInfo" style="text-align: center; margin-bottom: 20px; padding: 10px; background: #e9ecef; border-radius: 5px; font-size: 0.9em; color: #6c757d;">
             <span id="versionText">Version: Chargement...</span>
         </div>

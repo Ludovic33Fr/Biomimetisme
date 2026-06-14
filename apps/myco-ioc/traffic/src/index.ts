@@ -64,7 +64,9 @@ function startBurstTraffic() {
   burstInterval = setInterval(async () => {
     const target = pickNode();
     if (!target) return;
-    const badIP = "203.0.113.66";
+    // IP source variable par burst : chaque attaque = un attaquant distinct
+    // (plage de doc TEST-NET-3 203.0.113.0/24, RFC 5737)
+    const badIP = `203.0.113.${1 + Math.floor(Math.random() * 254)}`;
     for (let i = 0; i < 30; i++) {
       const ev = {
         nodeId: target,
