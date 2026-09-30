@@ -27,6 +27,10 @@ export type NodeState = {
   blocklistEntries: number;
   iocAcks: Map<string, number>;
   reputation: number;
+  // Dernière détection locale. « A détecté » est un événement, pas un état :
+  // sans borne de temps, tous les arbres finissent marqués détecteurs et la
+  // distinction avec « vacciné par le réseau » disparaît.
+  lastAlertAt: number;
 };
 
 export type SLOAlert = {
@@ -51,12 +55,13 @@ export type SLOAlert = {
 };
 
 export type SLOMetrics = {
-  mttd: number;
-  mttr: number;
-  containmentTime: number;
+  mttd: number | null;
+  mttr: number | null;
+  containmentTime: number | null;
   containmentRatio: number;
   iocRate: number;
   coverage: number;
+  coverageDetail: { protectedNodes: number; totalNodes: number; activeIOCs: number };
   sloViolations: { mttd: number; mttr: number; containment: number };
   consecutiveViolations: { mttd: number; mttr: number; containment: number };
 };
@@ -70,14 +75,16 @@ export type AppState = {
   activeIOCs: Map<string, ActiveIOC>;
   votes: Map<string, Set<string>>;
   metrics: {
-    mttd: number;
-    mttr: number;
-    containmentTime: number;
+    // null = pas encore mesuré. Zéro voudrait dire « instantané », ce qui est
+    // une affirmation, et fausse.
+    mttd: number | null;
+    mttr: number | null;
+    containmentTime: number | null;
     containmentRatio: number;
     firstOffensiveEvent: Map<string, number>;
     firstAlert: Map<string, number>;
     firstIOCShare: Map<string, number>;
-    lastDropByIOC: Map<string, number>;
+    firstIOCShareByNode: Map<string, number>;
   };
   nodeReputation: Map<string, number>;
   globalQuorum: number;
@@ -104,26 +111,27 @@ export function createState(opts: CreateStateOpts): AppState {
     activeIOCs: new Map(),
     votes: new Map(),
     metrics: {
-      mttd: 0,
-      mttr: 0,
-      containmentTime: 0,
+      mttd: null,
+      mttr: null,
+      containmentTime: null,
       containmentRatio: 0,
       firstOffensiveEvent: new Map(),
       firstAlert: new Map(),
       firstIOCShare: new Map(),
-      lastDropByIOC: new Map(),
+      firstIOCShareByNode: new Map(),
     },
     nodeReputation: new Map(),
     globalQuorum: opts.quorum,
     baseQuorum: opts.quorum,
     sloAlerts: [],
     sloMetrics: {
-      mttd: 0,
-      mttr: 0,
-      containmentTime: 0,
+      mttd: null,
+      mttr: null,
+      containmentTime: null,
       containmentRatio: 0,
       iocRate: 0,
       coverage: 0,
+      coverageDetail: { protectedNodes: 0, totalNodes: 0, activeIOCs: 0 },
       sloViolations: { mttd: 0, mttr: 0, containment: 0 },
       consecutiveViolations: { mttd: 0, mttr: 0, containment: 0 },
     },
@@ -149,7 +157,76 @@ export function defaultNode(id: string, ts: number): NodeState {
     blocklistEntries: 0,
     iocAcks: new Map(),
     reputation: 0.5,
+    lastAlertAt: 0,
   };
+}
+
+/** Durée pendant laquelle un arbre reste affiché comme « vient de détecter ». */
+export const FENETRE_DETECTION_MS = 20_000;
+
+/**
+ * Remet le mycélium à l'état initial : aucune protection, aucune mesure,
+ * aucun historique. Les nœuds restent enregistrés (ils sont vivants) mais
+ * leurs compteurs et leur réputation repartent de zéro.
+ *
+ * Ne touche pas aux blocklists locales des nœuds : elles vivent dans leur
+ * mémoire et se vident via le message `ioc.flush` (cf. commands.ts).
+ */
+export function resetDemoState(state: AppState, silenceMs = 15_000): void {
+  // Un arbre qui ne donne plus signe de vie n'a rien à faire dans un état
+  // « zéro » : c'est typiquement un conteneur arrêté par un scale down.
+  const limite = Date.now() - silenceMs;
+  for (const [id, node] of state.nodes) {
+    if (node.lastHeartbeat < limite) state.nodes.delete(id);
+  }
+
+  state.activeIOCs.clear();
+  state.votes.clear();
+  state.sloAlerts.length = 0;
+  state.events.length = 0;
+
+  state.metrics.mttd = null;
+  state.metrics.mttr = null;
+  state.metrics.containmentTime = null;
+  state.metrics.containmentRatio = 0;
+  state.metrics.firstOffensiveEvent.clear();
+  state.metrics.firstAlert.clear();
+  state.metrics.firstIOCShare.clear();
+  state.metrics.firstIOCShareByNode.clear();
+
+  state.sloMetrics.mttd = null;
+  state.sloMetrics.mttr = null;
+  state.sloMetrics.containmentTime = null;
+  state.sloMetrics.containmentRatio = 0;
+  state.sloMetrics.iocRate = 0;
+  state.sloMetrics.coverage = 0;
+  state.sloMetrics.coverageDetail = { protectedNodes: 0, totalNodes: 0, activeIOCs: 0 };
+  state.sloMetrics.sloViolations = { mttd: 0, mttr: 0, containment: 0 };
+  state.sloMetrics.consecutiveViolations = { mttd: 0, mttr: 0, containment: 0 };
+
+  state.nodeReputation.clear();
+  state.iocLocalCount = 0;
+  state.iocLocalWindow.length = 0;
+  state.floodMode = false;
+  state.containmentBreaches.clear();
+  state.globalQuorum = state.baseQuorum;
+  state.controllerHealth = "healthy";
+
+  const maintenant = Date.now();
+  for (const node of state.nodes.values()) {
+    node.alerts = 0;
+    node.drops = 0;
+    node.alerts_1m = 0;
+    node.drops_1m = 0;
+    node.blocklistEntries = 0;
+    node.iocAcks.clear();
+    node.reputation = 0.5;
+    node.lastAlertAt = 0;
+    node.health = "ok";
+    // On ne touche pas à lastSeen/lastHeartbeat : le nœud est bien vivant,
+    // le remettre à zéro le ferait passer pour isolé.
+    node.lastSeen = node.lastSeen || maintenant;
+  }
 }
 
 export function keyOf(ioc: Pick<IOC, "kind" | "value">): string {
@@ -172,43 +249,121 @@ export function calculateWeightedQuorum(state: AppState, ioc: IOC): number {
   return weighted;
 }
 
-export function calculateMTTD(state: AppState): number {
+/** Temps entre le premier paquet offensif et l'alerte locale. */
+export function calculateMTTD(state: AppState): number | null {
   let total = 0;
   let count = 0;
   for (const [nodeId, firstOffensive] of state.metrics.firstOffensiveEvent) {
     const firstAlert = state.metrics.firstAlert.get(nodeId);
-    if (firstAlert && firstAlert > firstOffensive) {
+    // >= et non > : deux événements traités dans la même milliseconde donnent
+    // une mesure de 0 ms, ce qui est un résultat, pas une absence de résultat.
+    if (firstAlert && firstAlert >= firstOffensive) {
       total += firstAlert - firstOffensive;
       count++;
     }
   }
-  return count > 0 ? total / count : 0;
+  return count > 0 ? total / count : null;
 }
 
-export function calculateMTTR(state: AppState): number {
+/** Temps entre l'alerte d'un nœud et le partage de l'IOC qui en découle. */
+export function calculateMTTR(state: AppState): number | null {
   let total = 0;
   let count = 0;
   for (const [nodeId, firstAlert] of state.metrics.firstAlert) {
-    const firstShare = state.metrics.firstIOCShare.get(nodeId);
-    if (firstShare && firstShare > firstAlert) {
+    const firstShare = state.metrics.firstIOCShareByNode.get(nodeId);
+    // Le node publie alerts.<id> puis ioc.local dans la foulée : le controller
+    // traite souvent les deux dans la même milliseconde. Avec un « > » strict,
+    // le MTTR n'était jamais mesuré.
+    if (firstShare && firstShare >= firstAlert) {
       total += firstShare - firstAlert;
       count++;
     }
   }
-  return count > 0 ? total / count : 0;
+  return count > 0 ? total / count : null;
 }
 
-export function calculateContainmentTime(state: AppState): number {
+/**
+ * Temps entre le partage d'un IOC et son application par le dernier arbre,
+ * mesuré sur les ACK.
+ *
+ * Deux définitions ont été écartées, toutes deux non bornées :
+ *  - « jusqu'au dernier blocage » grandit tant que l'attaquant insiste ;
+ *  - « jusqu'au premier blocage de chaque arbre » dépend de l'instant où
+ *    l'attaquant daigne visiter cet arbre, pas de la vitesse du mycélium.
+ * L'ACK est le seul signal qui dise « la protection est installée ici ».
+ */
+export function calculateContainmentTime(state: AppState): number | null {
   let total = 0;
   let count = 0;
+
   for (const [iocKey, firstShare] of state.metrics.firstIOCShare) {
-    const lastDrop = state.metrics.lastDropByIOC.get(iocKey);
-    if (lastDrop && lastDrop > firstShare) {
-      total += lastDrop - firstShare;
+    let dernierAck = 0;
+    for (const node of state.nodes.values()) {
+      const ts = node.iocAcks.get(iocKey);
+      if (ts != null && ts >= firstShare) dernierAck = Math.max(dernierAck, ts);
+    }
+    if (dernierAck > 0) {
+      total += dernierAck - firstShare;
       count++;
     }
   }
-  return count > 0 ? total / count : 0;
+
+  return count > 0 ? total / count : null;
+}
+
+/**
+ * Un nœud est « protégé » s'il a acquitté au moins un IOC encore actif.
+ * Recalculé à chaque broadcast : sans ça, un nœud reste bleu indéfiniment
+ * alors que l'IOC qui le protégeait a expiré depuis longtemps.
+ *
+ * L'isolation (pas de heartbeat) l'emporte sur tout le reste. Le nœud
+ * détecteur n'est jamais isolé de ce fait — comportement volontaire.
+ */
+export function recomputeHealth(state: AppState): void {
+  const activeKeys = new Set(state.activeIOCs.keys());
+  for (const node of state.nodes.values()) {
+    if (node.health === "isolated") continue;
+    let protectedByActiveIOC = false;
+    for (const key of activeKeys) {
+      if (node.iocAcks.has(key)) {
+        protectedByActiveIOC = true;
+        break;
+      }
+    }
+    node.health = protectedByActiveIOC ? "protected" : "ok";
+  }
+}
+
+/**
+ * Part des nœuds qui appliquent *tous* les IOCs actifs.
+ * Sans IOC actif il n'y a rien à propager : la couverture vaut 100 %.
+ */
+export function calculateCoverage(state: AppState): {
+  coverage: number;
+  protectedNodes: number;
+  totalNodes: number;
+  activeIOCs: number;
+} {
+  const totalNodes = state.nodes.size;
+  const activeKeys = Array.from(state.activeIOCs.keys());
+
+  if (totalNodes === 0) {
+    return { coverage: 0, protectedNodes: 0, totalNodes: 0, activeIOCs: activeKeys.length };
+  }
+  if (activeKeys.length === 0) {
+    return { coverage: 100, protectedNodes: totalNodes, totalNodes, activeIOCs: 0 };
+  }
+
+  let protectedNodes = 0;
+  for (const node of state.nodes.values()) {
+    if (activeKeys.every(key => node.iocAcks.has(key))) protectedNodes++;
+  }
+  return {
+    coverage: (protectedNodes / totalNodes) * 100,
+    protectedNodes,
+    totalNodes,
+    activeIOCs: activeKeys.length,
+  };
 }
 
 export function calculateContainmentRatio(state: AppState): number {

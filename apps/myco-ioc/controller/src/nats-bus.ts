@@ -54,18 +54,36 @@ export async function subscribeAll(nc: NatsConnection, deps: BusDeps): Promise<v
     },
   });
 
-  // Présence + heartbeat
+  // Présence + heartbeat.
+  //
+  // `nodes.hello` arrive toutes les 5 s et par nœud : c'est un battement de
+  // cœur, pas un événement. Le rediffuser tel quel noyait le journal sous des
+  // « a rejoint le mycélium » pour des arbres qui n'avaient pas bougé. On
+  // n'émet donc un événement que sur un vrai changement de présence.
   await nc.subscribe("nodes.hello", {
     callback: (_e, m) => {
       try {
         const hello = JSON.parse(sc.decode(m.data));
         const id = hello.nodeId || "unknown";
         const now = Date.now();
-        const n = state.nodes.get(id) || defaultNode(id, now);
+
+        const connu = state.nodes.get(id);
+        const revient = connu?.health === "isolated";
+
+        const n = connu || defaultNode(id, now);
         n.lastSeen = now;
         n.lastHeartbeat = now;
+        if (revient) n.health = "ok";
         state.nodes.set(id, n);
-        broadcast({ type: "event", payload: { kind: "hello", nodeId: id, ts: hello.ts } });
+
+        if (!connu) {
+          broadcast({ type: "event", payload: { kind: "hello", nodeId: id, ts: hello.ts || now } });
+        } else if (revient) {
+          broadcast({
+            type: "event",
+            payload: { kind: "node_reconnected", nodeId: id, ts: hello.ts || now },
+          });
+        }
       } catch { /* ignore */ }
     },
   });
@@ -80,14 +98,17 @@ export async function subscribeAll(nc: NatsConnection, deps: BusDeps): Promise<v
       n.alerts++;
       n.alerts_1m++;
       n.lastSeen = now;
+      n.lastAlertAt = now;
       state.nodes.set(id, n);
 
       if (!state.metrics.firstAlert.has(id)) {
         state.metrics.firstAlert.set(id, now);
       }
-      // Simulé : on n'a pas accès au timing réel du burst, on prend ~5s avant.
-      if (!state.metrics.firstOffensiveEvent.has(id)) {
-        state.metrics.firstOffensiveEvent.set(id, now - Math.random() * 5000);
+      // Le node envoie le début réel du burst. S'il ne le fournit pas (vieux
+      // node), on n'enregistre rien : le MTTD restera « non mesuré » plutôt
+      // que d'être rempli avec une valeur inventée.
+      if (!state.metrics.firstOffensiveEvent.has(id) && typeof alert.firstEventTs === "number") {
+        state.metrics.firstOffensiveEvent.set(id, alert.firstEventTs);
       }
 
       if (alert.iocKey) slo.checkContainmentBreach(alert.iocKey);
@@ -109,7 +130,6 @@ export async function subscribeAll(nc: NatsConnection, deps: BusDeps): Promise<v
       n.lastSeen = now;
       state.nodes.set(id, n);
 
-      if (drop.iocKey) state.metrics.lastDropByIOC.set(drop.iocKey, now);
       broadcast({ type: "event", payload: { kind: "drop", ...drop } });
     },
   });
@@ -130,6 +150,7 @@ export async function subscribeAll(nc: NatsConnection, deps: BusDeps): Promise<v
         type: "event",
         payload: {
           kind: "ioc.local",
+          iocKey: k,
           iocKind: ioc.kind,
           value: ioc.value,
           reason: ioc.reason,
@@ -137,6 +158,11 @@ export async function subscribeAll(nc: NatsConnection, deps: BusDeps): Promise<v
           confidence: ioc.confidence,
           ttl_sec: ioc.ttl_sec,
           firstSeen: ioc.firstSeen,
+          // Le vote est le mécanisme central : l'UI doit pouvoir montrer
+          // « 2 voix sur 3 requises » avant même que l'IOC soit partagé.
+          voteCount: state.votes.get(k)!.size,
+          quorumRequired: state.globalQuorum,
+          ts: now,
         },
       });
 
@@ -152,12 +178,20 @@ export async function subscribeAll(nc: NatsConnection, deps: BusDeps): Promise<v
         if (!state.metrics.firstIOCShare.has(k)) {
           state.metrics.firstIOCShare.set(k, now);
         }
+        // Indexé aussi par nœud source : le MTTR compare l'alerte d'un nœud
+        // au partage qui en découle, et ces deux maps doivent partager la
+        // même clé (le bug précédent croisait un nodeId avec une clé d'IOC,
+        // donc le MTTR valait toujours 0).
+        if (!state.metrics.firstIOCShareByNode.has(shared.source)) {
+          state.metrics.firstIOCShareByNode.set(shared.source, now);
+        }
 
         nc.publish("ioc.share", sc.encode(JSON.stringify(shared)));
         broadcast({
           type: "event",
           payload: {
             kind: "ioc.share",
+            iocKey: k,
             iocKind: shared.kind,
             value: shared.value,
             reason: shared.reason,
@@ -165,6 +199,11 @@ export async function subscribeAll(nc: NatsConnection, deps: BusDeps): Promise<v
             confidence: shared.confidence,
             ttl_sec: shared.ttl_sec,
             firstSeen: shared.firstSeen,
+            voteCount: state.votes.get(k)!.size,
+            quorumRequired: state.globalQuorum,
+            // Destinataires de la propagation, pour l'animer arête par arête.
+            targets: Array.from(state.nodes.keys()).filter(id => id !== shared.source),
+            ts: now,
           },
         });
       }
@@ -183,7 +222,8 @@ export async function subscribeAll(nc: NatsConnection, deps: BusDeps): Promise<v
         const node = state.nodes.get(nodeId);
         if (node) {
           node.iocAcks.set(iocKey, now);
-          if (node.health === "ok") node.health = "protected";
+          // La santé est recalculée à chaque broadcast depuis les acks +
+          // les IOCs encore actifs (cf. recomputeHealth) : ne pas la forcer ici.
 
           const ioc = state.activeIOCs.get(iocKey);
           if (ioc && now - ioc.startTime > 10_000) {

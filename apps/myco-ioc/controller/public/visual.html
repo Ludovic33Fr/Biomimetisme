@@ -1,2016 +1,607 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Myco-IOC Visual Dashboard</title>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            color: #333;
-        }
-        
-        .header {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            padding: 0.4rem 1.5rem;
-            box-shadow: 0 2px 20px rgba(0,0,0,0.1);
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-        }
-
-        .header-row {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            flex-wrap: wrap;
-        }
-
-        .header h1 {
-            color: #2c3e50;
-            font-size: 1.1rem;
-            font-weight: 400;
-            white-space: nowrap;
-        }
-
-        .header-version {
-            font-size: 0.75rem;
-            color: #888;
-            white-space: nowrap;
-        }
-
-        .header-hint {
-            font-size: 0.75rem;
-            color: #999;
-            white-space: nowrap;
-        }
-
-        .nav-tabs {
-            display: flex;
-            gap: 0.4rem;
-        }
-
-        .nav-tab {
-            padding: 0.25rem 0.8rem;
-            background: transparent;
-            border: 1px solid #3498db;
-            color: #3498db;
-            border-radius: 20px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            font-size: 0.85rem;
-        }
-
-        .nav-tab:hover, .nav-tab.active {
-            background: #3498db;
-            color: white;
-        }
-
-        .traffic-btn {
-            padding: 0.3rem 0.75rem;
-            border: none;
-            border-radius: 20px;
-            color: white;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-size: 0.8rem;
-        }
-        
-        .traffic-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-        }
-        
-        .traffic-btn:active {
-            transform: translateY(0);
-        }
-        
-        .traffic-btn.active {
-            box-shadow: 0 0 0 3px rgba(255,255,255,0.5);
-        }
-        
-        .container {
-            padding: 2rem;
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-        
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 2rem;
-            margin-bottom: 2rem;
-        }
-        
-        .main-panel {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 15px;
-            padding: 1.5rem;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        }
-        
-        .side-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-        
-        .panel {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 15px;
-            padding: 1.5rem;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            margin-bottom: 2rem;
-        }
-        
-        .panel h3 {
-            color: #2c3e50;
-            margin-bottom: 1rem;
-            font-size: 1.2rem;
-            font-weight: 500;
-        }
-        
-        /* Network Graph Styles */
-        #networkGraph {
-            width: 100%;
-            height: 500px;
-            border: 1px solid #e0e0e0;
-            border-radius: 10px;
-            background: #fafafa;
-        }
-        
-        .node {
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .node-circle.ok { fill: #27ae60; }
-        .node-circle.protected { fill: #3498db; }
-        .node-circle.high-drops { fill: #e74c3c; }
-        .node-circle.isolated { fill: #95a5a6; }
-        .node-circle.drift { fill: #9b59b6; }
-        
-        /* Health status badges */
-        .health-status.ok { background: #27ae60; color: white; }
-        .health-status.protected { background: #3498db; color: white; }
-        .health-status.high-drops { background: #e74c3c; color: white; }
-        .health-status.isolated { background: #95a5a6; color: white; }
-        .health-status.drift { background: #9b59b6; color: white; }
-        
-        .node-label {
-            font-size: 12px;
-            font-weight: bold;
-            text-anchor: middle;
-            fill: white;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-        }
-        
-        .ttl-ring {
-            fill: none;
-            stroke-width: 3;
-            stroke-dasharray: 5,5;
-            animation: rotate 2s linear infinite;
-        }
-        
-        @keyframes rotate {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-        
-        .edge {
-            stroke: #bdc3c7;
-            stroke-width: 2;
-            fill: none;
-        }
-        
-        .edge.pulsing {
-            stroke: #e74c3c;
-            stroke-width: 4;
-            animation: pulse 0.5s ease-in-out;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
-        }
-        
-        /* Tooltip */
-        .tooltip {
-            position: absolute;
-            background: rgba(0, 0, 0, 0.9);
-            color: white;
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 12px;
-            pointer-events: none;
-            z-index: 1000;
-            max-width: 250px;
-        }
-        
-        /* KPI Cards */
-        .kpi-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-        
-        .kpi-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 1.5rem;
-            border-radius: 15px;
-            text-align: center;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        }
-        
-        .kpi-value {
-            font-size: 2rem;
-            font-weight: bold;
-            margin-bottom: 0.5rem;
-        }
-        
-        .kpi-label {
-            font-size: 0.9rem;
-            opacity: 0.9;
-        }
-        
-        /* IOC Coverage Donut */
-        .coverage-donut {
-            position: relative;
-            width: 200px;
-            height: 200px;
-            margin: 0 auto;
-        }
-        
-        .coverage-text {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            font-size: 1.5rem;
-            font-weight: bold;
-        }
-        
-        /* IOC Table */
-        .ioc-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 1rem;
-        }
-        
-        .ioc-table th,
-        .ioc-table td {
-            padding: 0.75rem;
-            text-align: left;
-            border-bottom: 1px solid #e0e0e0;
-        }
-        
-        .ioc-table th {
-            background: #f8f9fa;
-            font-weight: 600;
-            color: #495057;
-        }
-        
-        .status-badge {
-            padding: 0.25rem 0.5rem;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            font-weight: bold;
-        }
-        
-        .status-active { background: #d4edda; color: #155724; }
-        .status-expired { background: #f8d7da; color: #721c24; }
-        .status-suspect { background: #fff3cd; color: #856404; }
-        
-        .action-btn {
-            padding: 0.25rem 0.5rem;
-            margin: 0.1rem;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 0.75rem;
-            transition: all 0.2s ease;
-        }
-        
-        .btn-expire { background: #dc3545; color: white; }
-        .btn-extend { background: #ffc107; color: #212529; }
-        .btn-quorum { background: #17a2b8; color: white; }
-        .btn-quarantine { background: #6f42c1; color: white; }
-        
-        .action-btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        }
-        
-        /* Timeline */
-        .timeline-container {
-            max-height: 400px;
-            overflow-y: auto;
-            border: 1px solid #e0e0e0;
-            border-radius: 10px;
-            padding: 1rem;
-        }
-        
-        .timeline-filters {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 1rem;
-            flex-wrap: wrap;
-        }
-        
-        .filter-btn {
-            padding: 0.25rem 0.75rem;
-            border: 1px solid #dee2e6;
-            background: white;
-            border-radius: 15px;
-            cursor: pointer;
-            font-size: 0.8rem;
-            transition: all 0.2s ease;
-        }
-        
-        .filter-btn.active {
-            background: #007bff;
-            color: white;
-            border-color: #007bff;
-        }
-        
-        .timeline-event {
-            padding: 0.5rem;
-            margin: 0.25rem 0;
-            border-left: 3px solid #dee2e6;
-            background: #f8f9fa;
-            border-radius: 0 5px 5px 0;
-        }
-        
-        .timeline-event.alert { border-left-color: #dc3545; }
-        .timeline-event.ioc-local { border-left-color: #ffc107; }
-        .timeline-event.ioc-share { border-left-color: #28a745; }
-        .timeline-event.drop { border-left-color: #17a2b8; }
-        
-        /* Sparklines */
-        .sparkline-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 1rem;
-        }
-        
-        .sparkline-card {
-            background: #f8f9fa;
-            padding: 1rem;
-            border-radius: 10px;
-            border: 1px solid #e0e0e0;
-        }
-        
-        .sparkline-title {
-            font-weight: bold;
-            margin-bottom: 0.5rem;
-            color: #495057;
-        }
-        
-        .sparkline-canvas {
-            width: 100%;
-            height: 60px;
-        }
-        
-        /* Controls */
-        .controls-panel {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 15px;
-            padding: 1.5rem;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            margin-bottom: 2rem;
-        }
-        
-        .control-group {
-            margin-bottom: 1rem;
-        }
-        
-        .control-label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: 500;
-            color: #495057;
-        }
-        
-        .slider {
-            width: 100%;
-            height: 6px;
-            border-radius: 3px;
-            background: #ddd;
-            outline: none;
-            -webkit-appearance: none;
-        }
-        
-        .slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: #007bff;
-            cursor: pointer;
-        }
-        
-        .health-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 0.5rem;
-        }
-        
-        .health-online { background: #28a745; }
-        .health-isolated { background: #dc3545; }
-        
-        /* SLO Alert Styles */
-        .slo-alerts-container {
-            max-height: 300px;
-            overflow-y: auto;
-            border: 1px solid #e0e0e0;
-            border-radius: 10px;
-            padding: 1rem;
-        }
-        
-        .slo-alert {
-            padding: 0.75rem;
-            margin: 0.5rem 0;
-            border-radius: 8px;
-            border-left: 4px solid;
-            font-size: 0.9rem;
-        }
-        
-        .slo-alert.warning {
-            background: #fff3cd;
-            border-left-color: #ffc107;
-            color: #856404;
-        }
-        
-        .slo-alert.critical {
-            background: #f8d7da;
-            border-left-color: #dc3545;
-            color: #721c24;
-        }
-        
-        .slo-alert .alert-header {
-            font-weight: bold;
-            margin-bottom: 0.25rem;
-        }
-        
-        .slo-alert .alert-message {
-            margin-bottom: 0.25rem;
-        }
-        
-        .slo-alert .alert-timestamp {
-            font-size: 0.75rem;
-            opacity: 0.7;
-        }
-        
-        /* SLO Metrics Cards */
-        .slo-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 1rem;
-            border-radius: 10px;
-            text-align: center;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        }
-        
-        .slo-card.violation {
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-        }
-        
-        .slo-card.warning {
-            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
-        }
-        
-        .slo-value {
-            font-size: 1.5rem;
-            font-weight: bold;
-            margin-bottom: 0.25rem;
-        }
-        
-        .slo-label {
-            font-size: 0.8rem;
-            opacity: 0.9;
-        }
-        
-        .slo-threshold {
-            font-size: 0.7rem;
-            opacity: 0.7;
-            margin-top: 0.25rem;
-        }
-        
-        /* Narration bar (démo guidée) */
-        .narration-bar {
-            position: fixed;
-            left: 50%;
-            bottom: 24px;
-            transform: translateX(-50%) translateY(120%);
-            width: min(900px, calc(100% - 48px));
-            background: linear-gradient(135deg, #8e44ad 0%, #5b2c91 100%);
-            color: #fff;
-            padding: 1rem 1.5rem;
-            border-radius: 14px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-            z-index: 1500;
-            opacity: 0;
-            transition: transform .35s cubic-bezier(.2,.7,.2,1), opacity .35s;
-            font-size: 1rem;
-            line-height: 1.4;
-        }
-        .narration-bar.visible {
-            transform: translateX(-50%) translateY(0);
-            opacity: 1;
-        }
-        .narration-bar .narration-step {
-            font-size: 0.78rem;
-            opacity: 0.85;
-            margin-bottom: 0.35rem;
-            letter-spacing: 0.04em;
-        }
-        .narration-bar .narration-message {
-            font-weight: 500;
-        }
-        .narration-bar .narration-progress {
-            height: 4px;
-            margin-top: 0.6rem;
-            background: rgba(255,255,255,0.25);
-            border-radius: 2px;
-            overflow: hidden;
-        }
-        .narration-bar .narration-progress > span {
-            display: block;
-            height: 100%;
-            background: #fff;
-            transition: width .4s ease;
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .kpi-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-            
-            .container {
-                padding: 1rem;
-            }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Myco-IOC — opérateur</title>
+<meta name="description" content="Vue opérateur : indicateurs actifs, quorum, SLO et santé des nœuds du mycélium.">
+<link rel="stylesheet" href="/shared/theme.css">
 </head>
 <body>
-    <div class="header">
-        <div class="header-row">
-            <h1>🌐 Myco-IOC Visual</h1>
-            <div class="nav-tabs">
-                <a href="/" class="nav-tab">Simple</a>
-                <a href="/visual" class="nav-tab active">Visuel</a>
-            </div>
-            <span class="header-version" id="versionText">Version: Chargement...</span>
 
-            <!-- Contrôles de trafic -->
-            <div style="margin-left: auto; display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
-                <button id="stopTraffic" class="traffic-btn active" style="background: #e74c3c;">🛑 Arrêter</button>
-                <button id="lowTraffic" class="traffic-btn" style="background: #27ae60;">🐌 Faible</button>
-                <button id="normalTraffic" class="traffic-btn" style="background: #3498db;">🚗 Normal</button>
-                <button id="triggerAttack" class="traffic-btn" style="background: #f39c12;">⚡ Attaque</button>
-                <select id="attackTarget" style="padding: 0.3rem 0.6rem; border-radius: 20px; border: 1px solid #ccc; background: white; font-size: 0.8rem;">
-                    <option value="">Cible : aléatoire</option>
-                </select>
-                <button id="runGuidedDemo" class="traffic-btn" style="background: #8e44ad;">▶ Démo guidée</button>
-                <span class="header-hint">💡 Le trafic démarre arrêté</span>
-            </div>
+<header class="barre">
+  <h1 class="marque">
+    <span data-icone="feuille" data-icone-taille="22"></span>
+    Myco-IOC
+  </h1>
+
+  <nav class="onglets" aria-label="Vues du dashboard">
+    <a class="onglet" href="/">Projection</a>
+    <a class="onglet" href="/visual" aria-current="page">Opérateur</a>
+  </nav>
+
+  <span class="connexion" id="connexion" data-etat="connecting">
+    <span class="pastille"></span>
+    <span data-role="texte">Connexion…</span>
+  </span>
+
+  <span class="meta" id="version">Version —</span>
+
+  <!-- Un seul bloc de pilotage : s'il doit passer à la ligne, il le fait
+       d'un bloc au lieu de laisser un bouton orphelin à gauche. -->
+  <div class="pupitre" style="margin-left:auto">
+  <div class="groupe" role="group" aria-labelledby="titre-trafic">
+    <span class="groupe-titre" id="titre-trafic">Trafic</span>
+    <button class="btn btn-petit" data-trafic="stop" aria-pressed="true" data-icone="arret">Arrêter</button>
+    <button class="btn btn-petit" data-trafic="low" aria-pressed="false" data-icone="lent">Faible</button>
+    <button class="btn btn-petit" data-trafic="normal" aria-pressed="false" data-icone="normal">Normal</button>
+    <button class="btn btn-petit btn-danger" data-trafic="attack" data-icone="foudre">Attaquer</button>
+    <label class="sr-only" for="cible">Arbre à attaquer</label>
+    <select class="champ btn-petit" id="cible" data-role="cible">
+      <option value="">Cible : au hasard</option>
+    </select>
+  </div>
+
+  <!-- Même place que sur la vue projection : une action de session se pilote
+       depuis le haut de page, pas depuis le bas du dernier panneau. -->
+  <button class="btn btn-petit" id="reset" data-icone="reinitialiser"
+          title="Lève toutes les protections et arrête le trafic">
+    Remettre à zéro
+  </button>
+  </div>
+</header>
+
+<main class="contenu">
+
+  <section aria-labelledby="titre-mesures">
+    <h2 id="titre-mesures" class="sr-only">Indicateurs de service</h2>
+    <ul class="mesures" id="mesures">
+      <li class="mesure" data-mesure="mttd">
+        <span class="mesure-libelle">Détection <abbr title="Mean Time To Detect">MTTD</abbr></span>
+        <span class="mesure-valeur" data-role="valeur">—</span>
+        <span class="mesure-seuil" data-role="seuil">de l'attaque à l'alerte locale</span>
+      </li>
+      <li class="mesure" data-mesure="mttr">
+        <span class="mesure-libelle">Partage <abbr title="Mean Time To Respond">MTTR</abbr></span>
+        <span class="mesure-valeur" data-role="valeur">—</span>
+        <span class="mesure-seuil" data-role="seuil">de l'alerte à l'IOC partagé</span>
+      </li>
+      <li class="mesure" data-mesure="containment">
+        <span class="mesure-libelle">Confinement</span>
+        <span class="mesure-valeur" data-role="valeur">—</span>
+        <span class="mesure-seuil" data-role="seuil">du partage à l'application par tous</span>
+      </li>
+      <li class="mesure" data-mesure="coverage">
+        <span class="mesure-libelle">Couverture</span>
+        <span class="mesure-valeur" data-role="valeur">—</span>
+        <span class="mesure-seuil" data-role="seuil">arbres appliquant tous les IOC actifs</span>
+      </li>
+      <li class="mesure" data-mesure="iocRate">
+        <span class="mesure-libelle">Débit d'IOC</span>
+        <span class="mesure-valeur" data-role="valeur">—</span>
+        <span class="mesure-seuil" data-role="seuil">propositions par seconde</span>
+      </li>
+    </ul>
+  </section>
+
+  <!-- L'objet principal de la vue opérateur : pleine largeur, pour que les
+       actions de chaque ligne restent visibles sans défilement latéral. -->
+  <section class="panneau" aria-labelledby="titre-iocs">
+    <div class="panneau-titre">
+      <h2 id="titre-iocs">Indicateurs actifs</h2>
+      <span class="meta" id="compteur-iocs"></span>
+    </div>
+    <div class="tableau-scroll">
+      <table class="tableau" style="min-width:820px">
+        <thead>
+          <tr>
+            <th scope="col">Type</th>
+            <th scope="col">Valeur</th>
+            <th scope="col">Détecté par</th>
+            <th scope="col">Voix</th>
+            <th scope="col">Propagation</th>
+            <th scope="col">Protection restante</th>
+            <th scope="col">Statut</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="corps-iocs">
+          <tr><td colspan="8"><p class="vide">Aucun indicateur actif.</p></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="grille-2">
+
+    <div class="colonne">
+
+      <section class="panneau" aria-labelledby="titre-journal">
+        <div class="panneau-titre">
+          <h2 id="titre-journal">Journal</h2>
+          <span class="meta" id="compteur-journal"></span>
         </div>
+        <div class="filtres" role="group" aria-label="Filtrer le journal">
+          <button class="btn btn-petit" data-filtre="tous" aria-pressed="true">Tout</button>
+          <button class="btn btn-petit" data-filtre="alert" aria-pressed="false">Attaques</button>
+          <button class="btn btn-petit" data-filtre="ioc.local" aria-pressed="false">Propositions</button>
+          <button class="btn btn-petit" data-filtre="ioc.share" aria-pressed="false">Partages</button>
+          <button class="btn btn-petit" data-filtre="ack" aria-pressed="false">Applications</button>
+          <button class="btn btn-petit" data-filtre="drop" aria-pressed="false">Blocages</button>
+          <button class="btn btn-petit" data-filtre="node_isolated" aria-pressed="false">Isolations</button>
+        </div>
+        <ul class="flux" id="journal">
+          <li><p class="vide">Aucun événement pour l'instant.</p></li>
+        </ul>
+      </section>
+
+      <section class="panneau" aria-labelledby="titre-arbres">
+        <h2 id="titre-arbres">Arbres</h2>
+        <div class="tableau-scroll">
+          <table class="tableau" style="min-width:540px">
+            <thead>
+              <tr>
+                <th scope="col">Arbre</th>
+                <th scope="col">État</th>
+                <th scope="col">Alertes</th>
+                <th scope="col">Blocages</th>
+                <th scope="col">Réputation</th>
+                <th scope="col">Vu</th>
+              </tr>
+            </thead>
+            <tbody id="corps-arbres">
+              <tr><td colspan="6"><p class="vide">Aucun arbre connecté.</p></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
     </div>
 
-    <div class="container">
-        <!-- KPI Cards -->
-        <div class="kpi-grid">
-            <div class="kpi-card">
-                <div class="kpi-value" id="mttd">--</div>
-                <div class="kpi-label">MTTD (ms)</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-value" id="mttr">--</div>
-                <div class="kpi-label">MTTR (ms)</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-value" id="containment-time">--</div>
-                <div class="kpi-label">Containment Time (s)</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-value" id="containment-ratio">--%</div>
-                <div class="kpi-label">Containment Ratio</div>
-            </div>
+    <div class="colonne">
+
+      <section class="panneau" aria-labelledby="titre-topologie">
+        <h2 id="titre-topologie">Mycélium</h2>
+        <div id="topologie"></div>
+        <ul class="legende" aria-label="Légende des états">
+          <li><span class="puce" data-etat="ok"></span> sain</li>
+          <li><span class="puce" data-etat="detector"></span> vient de détecter</li>
+          <li><span class="puce" data-etat="protected"></span> vacciné</li>
+          <li><span class="puce" data-etat="isolated"></span> coupé</li>
+        </ul>
+      </section>
+
+      <section class="panneau" aria-labelledby="titre-alertes">
+        <div class="panneau-titre">
+          <h2 id="titre-alertes">Alertes de service</h2>
+          <span class="meta" id="etat-flood"></span>
+        </div>
+        <ul class="alertes" id="alertes">
+          <li><p class="vide">Aucune alerte. Les SLO sont tenus.</p></li>
+        </ul>
+      </section>
+
+      <section class="panneau" aria-labelledby="titre-controles">
+        <h2 id="titre-controles">Contrôles</h2>
+
+        <div style="margin-bottom:1rem">
+          <label for="quorum">Quorum : voix nécessaires avant de propager un IOC</label>
+          <input type="range" id="quorum" min="1" max="10" step="1" value="1"
+                 aria-describedby="quorum-valeur">
+          <p id="quorum-valeur" class="meta">1 voix requise</p>
         </div>
 
-        <!-- SLO/SLA Metrics -->
-        <div class="panel">
-            <h3>📊 SLO/SLA Monitoring</h3>
-            <div class="kpi-grid">
-                <div class="slo-card" id="slo-mttd">
-                    <div class="slo-value">--</div>
-                    <div class="slo-label">MTTD</div>
-                    <div class="slo-threshold">SLO: ≤ 2s</div>
-                </div>
-                <div class="slo-card" id="slo-mttr">
-                    <div class="slo-value">--</div>
-                    <div class="slo-label">MTTR</div>
-                    <div class="slo-threshold">SLO: ≤ 3s</div>
-                </div>
-                <div class="slo-card" id="slo-containment">
-                    <div class="slo-value">--</div>
-                    <div class="slo-label">Containment</div>
-                    <div class="slo-threshold">SLO: ≤ 10s</div>
-                </div>
-                <div class="slo-card" id="slo-ioc-rate">
-                    <div class="slo-value">--</div>
-                    <div class="slo-label">IOC Rate</div>
-                    <div class="slo-threshold">Flood: > 10/s</div>
-                </div>
-            </div>
+        <div class="groupe" role="group" aria-labelledby="titre-mode" style="margin-bottom:0.75rem">
+          <span class="groupe-titre" id="titre-mode">Si le controller tombe</span>
+          <button class="btn btn-petit" id="fail-mode">fail-open</button>
         </div>
 
-        <!-- SLO Alerts -->
-        <div class="panel">
-            <h3>🚨 SLO Alerts</h3>
-            <div class="slo-alerts-container" id="sloAlertsContainer">
-                <p style="text-align: center; color: #6c757d;">Aucune alerte SLO</p>
-            </div>
+        <div class="groupe" role="group" aria-labelledby="titre-simulations">
+          <span class="groupe-titre" id="titre-simulations">Simulations</span>
+          <button class="btn btn-petit" id="sim-fp" data-icone="fiole">Faux positif</button>
+          <button class="btn btn-petit" id="sim-flood" data-icone="vague">Afflux d'IOC</button>
+          <button class="btn btn-petit" id="sim-isolation" data-icone="prise">Couper un arbre</button>
         </div>
 
-        <!-- Main Dashboard Grid -->
-        <div class="dashboard-grid">
-            <!-- Network Graph -->
-            <div class="main-panel">
-                <h3>🗺️ Topologie Réseau & Mycélium</h3>
-                <svg id="networkGraph"></svg>
-            </div>
+      </section>
 
-            <!-- Side Panel -->
-            <div class="side-panel">
-                <!-- IOC Coverage -->
-                <div class="panel">
-                    <h3>📊 Couverture IOC</h3>
-                    <div class="coverage-donut">
-                        <canvas id="coverageChart"></canvas>
-                        <div class="coverage-text">
-                            <div id="coverage-percentage">0%</div>
-                            <div style="font-size: 0.8rem;">Couverture</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Health & Sync -->
-                <div class="panel">
-                    <h3>💓 Santé & Synchronisation</h3>
-                    <div id="healthStatus">
-                        <p>Aucun nœud connecté</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Controls Panel -->
-        <div class="controls-panel">
-            <h3>🎛️ Contrôles</h3>
-            <div class="control-group">
-                <label class="control-label">Quorum Global</label>
-                <input type="range" class="slider" id="quorumSlider" min="1" max="10" value="1">
-                <div style="text-align: center; margin-top: 0.5rem;">
-                    <span id="quorumValue">1</span> nœuds requis
-                </div>
-            </div>
-            
-            <div class="control-group">
-                <label class="control-label">Mode Fail-over</label>
-                <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
-                    <button id="failModeBtn" class="action-btn btn-quorum" onclick="toggleFailMode()">
-                        Mode: <span id="failModeText">fail-open</span>
-                    </button>
-                </div>
-            </div>
-            
-            <div class="control-group">
-                <label class="control-label">Démonstrations</label>
-                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap;">
-                    <button class="action-btn btn-expire" onclick="simulateFalsePositive()">
-                        🧪 Simuler FP
-                    </button>
-                    <button class="action-btn btn-extend" onclick="simulateIOCFlood()">
-                        🌊 Simuler Flood
-                    </button>
-                    <button class="action-btn btn-quarantine" onclick="simulateNodeIsolation()">
-                        🔌 Simuler Isolation
-                    </button>
-                    <button class="action-btn btn-extend" onclick="testNodeStatusUpdate()">
-                        🧪 Test Status
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- IOC Table -->
-        <div class="panel">
-            <h3>🚨 Table des IOC Actifs</h3>
-            <table class="ioc-table">
-                <thead>
-                    <tr>
-                        <th>Type</th>
-                        <th>Valeur</th>
-                        <th>Première détection</th>
-                        <th>Sources</th>
-                        <th>Quorum</th>
-                        <th>TTL Restant</th>
-                        <th>Propagation</th>
-                        <th>Efficacité</th>
-                        <th>Statut</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="iocTableBody">
-                    <tr>
-                        <td colspan="10" style="text-align: center; color: #6c757d;">Aucun IOC actif</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Timeline -->
-        <div class="panel">
-            <h3>📝 Timeline d'Événements</h3>
-            <div class="timeline-filters">
-                <button class="filter-btn active" data-filter="all">Tous</button>
-                <button class="filter-btn" data-filter="alert">Alertes</button>
-                <button class="filter-btn" data-filter="ioc-local">IOC Local</button>
-                <button class="filter-btn" data-filter="ioc-share">IOC Partagé</button>
-                <button class="filter-btn" data-filter="drop">Drops</button>
-                <button class="filter-btn" data-filter="diagnostic">🔍 Diagnostic</button>
-            </div>
-            <div class="timeline-container" id="timelineContainer">
-                <p style="text-align: center; color: #6c757d;">Aucun événement</p>
-            </div>
-        </div>
-
-        <!-- Sparklines -->
-        <div class="panel">
-            <h3>📈 Sparklines par Nœud</h3>
-            <div class="sparkline-container" id="sparklineContainer">
-                <p style="text-align: center; color: #6c757d;">Aucun nœud connecté</p>
-            </div>
-        </div>
     </div>
+  </div>
+</main>
 
-    <div class="tooltip" id="tooltip" style="display: none;"></div>
+<div class="narration" id="narration" role="status" aria-live="polite">
+  <div class="narration-entete">
+    <span data-role="etape">Démo guidée</span>
+    <button class="btn btn-petit" id="arret-demo" data-icone="stop">Interrompre</button>
+  </div>
+  <p class="narration-message" data-role="message"></p>
+  <div class="narration-jauge"><span data-role="jauge"></span></div>
+</div>
 
-    <!-- Bande narration de la démo guidée -->
-    <div class="narration-bar" id="narrationBar" role="status" aria-live="polite">
-      <div class="narration-step" id="narrationStep">Étape — / —</div>
-      <div class="narration-message" id="narrationMessage"></div>
-      <div class="narration-progress"><span id="narrationProgress" style="width:0%"></span></div>
-    </div>
+<noscript>
+  <p style="padding:1.25rem">Ce dashboard a besoin de JavaScript : il affiche un flux temps réel reçu par WebSocket.</p>
+</noscript>
 
-    <script>
-        // Global state
-        let ws = null;
-        let reconnectInterval = null;
-        let nodes = new Map();
-        let iocs = new Map();
-        let events = [];
-        let sparklineData = new Map();
-        let networkGraph = null;
-        let coverageChart = null;
-        
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            initializeNetworkGraph();
-            initializeCoverageChart();
-            initializeControls();
-            connectWebSocket();
-        });
+<script type="module">
+import { connecterBus, brancherIndicateur } from '/shared/bus.js';
+import { creerMycelium } from '/shared/mycelium.js';
+import { poserIcones } from '/shared/icons.js';
+import { creerNarration, cablerTrafic, rendreEvenements, confirmerPuis } from '/shared/ui.js';
+import { ech, heure, duree, millis, pluriel, dateHeure, LIBELLE_ETAT } from '/shared/format.js';
 
-        function initializeNetworkGraph() {
-            const svg = d3.select('#networkGraph');
-            const width = 800;
-            const height = 500;
-            
-            svg.attr('width', width).attr('height', height);
-            
-            const simulation = d3.forceSimulation()
-                .force('link', d3.forceLink().id(d => d.id).distance(100))
-                .force('charge', d3.forceManyBody().strength(-300))
-                .force('center', d3.forceCenter(width / 2, height / 2));
-            
-            networkGraph = { svg, simulation, width, height };
-        }
-        
-        function initializeCoverageChart() {
-            const ctx = document.getElementById('coverageChart').getContext('2d');
-            coverageChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    datasets: [{
-                        data: [0, 100],
-                        backgroundColor: ['#dc3545', '#e9ecef'],
-                        borderWidth: 0
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    cutout: '70%',
-                    plugins: {
-                        legend: { display: false }
-                    }
-                }
-            });
-        }
-        
-        function initializeControls() {
-            const slider = document.getElementById('quorumSlider');
-            const value = document.getElementById('quorumValue');
-            
-            slider.addEventListener('input', function() {
-                value.textContent = this.value;
-                // Send quorum update to backend via WebSocket
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({
-                        type: 'command',
-                        action: 'updateQuorum',
-                        value: parseInt(this.value)
-                    }));
-                }
-            });
-            
-            // Initialize traffic controls
-            initializeTrafficControls();
-        }
-        
-        function updateGlobalQuorum(quorum) {
-            const slider = document.getElementById('quorumSlider');
-            const value = document.getElementById('quorumValue');
-            
-            if (slider && value) {
-                slider.value = quorum;
-                value.textContent = quorum;
-            }
-        }
-        
-        function updateSLOMetrics(sloMetrics) {
-            if (!sloMetrics) return;
-            
-            // Update SLO cards with values and styling
-            updateSLOCard('slo-mttd', sloMetrics.mttd, 2000, 'ms');
-            updateSLOCard('slo-mttr', sloMetrics.mttr, 3000, 'ms');
-            updateSLOCard('slo-containment', sloMetrics.containmentTime, 10, 's');
-            updateSLOCard('slo-ioc-rate', sloMetrics.iocRate, 10, '/s');
-        }
-        
-        function updateSLOCard(cardId, value, threshold, unit) {
-            const card = document.getElementById(cardId);
-            if (!card) return;
-            
-            const valueEl = card.querySelector('.slo-value');
-            if (valueEl) {
-                valueEl.textContent = Math.round(value) + unit;
-            }
-            
-            // Update card styling based on threshold
-            card.className = 'slo-card';
-            if (value > threshold) {
-                card.classList.add('violation');
-            } else if (value > threshold * 0.8) {
-                card.classList.add('warning');
-            }
-        }
-        
-        function updateSLOAlerts(sloAlerts) {
-            const container = document.getElementById('sloAlertsContainer');
-            if (!container) return;
-            
-            if (!sloAlerts || sloAlerts.length === 0) {
-                container.innerHTML = '<p style="text-align: center; color: #6c757d;">Aucune alerte SLO</p>';
-                return;
-            }
-            
-            container.innerHTML = sloAlerts.map(alert => {
-                const alertClass = alert.severity === 'critical' ? 'critical' : 'warning';
-                const timestamp = new Date(alert.timestamp).toLocaleTimeString();
-                
-                return `
-                    <div class="slo-alert ${alertClass}">
-                        <div class="alert-header">${getAlertIcon(alert.type)} ${alert.type.replace('_', ' ').toUpperCase()}</div>
-                        <div class="alert-message">${alert.message}</div>
-                        <div class="alert-timestamp">${timestamp}</div>
-                    </div>
-                `;
-            }).join('');
-        }
-        
-        function getAlertIcon(alertType) {
-            const icons = {
-                'reactivity_degraded': '⚠️',
-                'containment_breach': '🚨',
-                'ioc_flood': '🌊',
-                'node_isolated': '🔌',
-                'sync_ko': '🔄',
-                'blocklist_saturation': '📦'
-            };
-            return icons[alertType] || '⚠️';
-        }
-        
-        function addSLOAlert(alert) {
-            // Add to timeline as well
-            addEvent({
-                kind: 'slo_alert',
-                type: alert.type,
-                message: alert.message,
-                severity: alert.severity,
-                timestamp: alert.timestamp
-            });
-        }
-        
-        function updateFailMode(failMode) {
-            const failModeText = document.getElementById('failModeText');
-            if (failModeText) {
-                failModeText.textContent = failMode;
-            }
-        }
-        
-        function updateVersion(version, buildTimestamp) {
-            const versionEl = document.getElementById('versionText');
-            if (versionEl) {
-                const buildDate = new Date(buildTimestamp).toLocaleString('fr-FR');
-                versionEl.textContent = `Version: ${version} | Build: ${buildDate}`;
-            }
-        }
-        
-        function connectWebSocket() {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws`;
-            
-            ws = new WebSocket(wsUrl);
-            
-            ws.onopen = function() {
-                console.log('WebSocket connecté');
-                if (reconnectInterval) {
-                    clearInterval(reconnectInterval);
-                    reconnectInterval = null;
-                }
-            };
-            
-            ws.onmessage = function(event) {
-                try {
-                    const data = JSON.parse(event.data);
-                    handleMessage(data);
-                } catch (e) {
-                    console.error('Erreur parsing message:', e);
-                }
-            };
-            
-            ws.onclose = function() {
-                console.log('WebSocket fermé');
-                if (!reconnectInterval) {
-                    reconnectInterval = setInterval(connectWebSocket, 3000);
-                }
-            };
-            
-            ws.onerror = function(error) {
-                console.error('Erreur WebSocket:', error);
-            };
-        }
-        
-        // Contrôles de trafic
-        function initializeTrafficControls() {
-            document.getElementById('stopTraffic').addEventListener('click', () => {
-                sendTrafficCommand('stop');
-                updateTrafficButtonState('stopTraffic');
-            });
-            
-            document.getElementById('lowTraffic').addEventListener('click', () => {
-                sendTrafficCommand('low');
-                updateTrafficButtonState('lowTraffic');
-            });
-            
-            document.getElementById('normalTraffic').addEventListener('click', () => {
-                sendTrafficCommand('normal');
-                updateTrafficButtonState('normalTraffic');
-            });
-            
-            document.getElementById('triggerAttack').addEventListener('click', () => {
-                sendTrafficCommand('attack');
-                updateTrafficButtonState('triggerAttack');
-            });
+poserIcones();
 
-            const demoBtn = document.getElementById('runGuidedDemo');
-            if (demoBtn) {
-                demoBtn.addEventListener('click', () => {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'command', action: 'runGuidedDemo' }));
-                        updateTrafficButtonState('runGuidedDemo');
-                    }
-                });
-            }
-        }
+const bus = connecterBus();
+const mycelium = creerMycelium(document.getElementById('topologie'), { compact: true });
+const narration = creerNarration(document.getElementById('narration'));
 
-        // Narration de la démo guidée (auto-hide ~10s après la dernière étape)
-        let narrationHideTimer = null;
-        function showNarration({ step, total, message }) {
-            const bar = document.getElementById('narrationBar');
-            const stepEl = document.getElementById('narrationStep');
-            const msgEl = document.getElementById('narrationMessage');
-            const progEl = document.getElementById('narrationProgress');
-            if (!bar || !stepEl || !msgEl || !progEl) return;
+const controles = [
+  ...document.querySelectorAll('[data-trafic]'),
+  document.getElementById('cible'),
+  document.getElementById('quorum'),
+  document.getElementById('fail-mode'),
+  document.getElementById('sim-fp'),
+  document.getElementById('sim-flood'),
+  document.getElementById('sim-isolation'),
+  document.getElementById('reset'),
+];
+const rafraichirIndicateur = brancherIndicateur(
+  bus,
+  document.getElementById('connexion'),
+  controles,
+);
+setInterval(rafraichirIndicateur, 1000);
 
-            stepEl.textContent = `Étape ${step} / ${total}`;
-            msgEl.textContent = message;
-            progEl.style.width = `${Math.round((step / total) * 100)}%`;
-            bar.classList.add('visible');
+const trafic = cablerTrafic(bus, document);
 
-            if (narrationHideTimer) clearTimeout(narrationHideTimer);
-            // Si on est sur la dernière étape, on planifie un hide ; sinon on
-            // laisse la prochaine étape rafraîchir.
-            if (step >= total) {
-                narrationHideTimer = setTimeout(() => bar.classList.remove('visible'), 10000);
-            }
-        }
-        
-        function sendTrafficCommand(command) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                const msg = {
-                    type: 'command',
-                    action: 'trafficControl',
-                    command: command
-                };
-                if (command === 'attack') {
-                    const sel = document.getElementById('attackTarget');
-                    if (sel && sel.value) msg.targetNodeId = sel.value;
-                }
-                ws.send(JSON.stringify(msg));
-                console.log(`Traffic command sent: ${command}${msg.targetNodeId ? ' -> ' + msg.targetNodeId : ''}`);
-            } else {
-                console.error('WebSocket not connected');
-            }
-        }
+document.getElementById('arret-demo').addEventListener('click', () => {
+  bus.envoyer({ action: 'stopGuidedDemo' });
+  narration.cacher();
+});
+bus.sur('narration', charge => narration.montrer(charge));
 
-        function updateTrafficButtonState(activeButtonId) {
-            // Remove active class from all buttons
-            document.querySelectorAll('.traffic-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
+/* --- Mesures ------------------------------------------------------------- */
 
-            // Add active class to clicked button
-            document.getElementById(activeButtonId).classList.add('active');
-        }
+const mesures = Object.fromEntries(
+  [...document.querySelectorAll('.mesure')].map(li => [li.dataset.mesure, li]),
+);
 
-        function refreshAttackTargetOptions() {
-            const sel = document.getElementById('attackTarget');
-            if (!sel) return;
-            const previous = sel.value;
-            const ids = Array.from(nodes.keys()).sort();
-            sel.innerHTML = '<option value="">Cible : aléatoire</option>' +
-                ids.map(id => `<option value="${id}">${id}</option>`).join('');
-            if (ids.includes(previous)) sel.value = previous;
-        }
-        
-        function handleMessage(data) {
-            switch (data.type) {
-                case 'state':
-                    updateNodes(data.payload.nodes);
-                    updateIOCs(data.payload.activeIOCs);
-                    updateKPIs(data.payload);
-                    updateCoverage(data.payload.nodes, data.payload.activeIOCs);
-                    updateHealthStatus(data.payload.nodes);
-                    updateSparklines(data.payload.nodes);
-                    updateSLOMetrics(data.payload.sloMetrics);
-                    updateSLOAlerts(data.payload.sloAlerts);
-                    updateVersion(data.payload.systemVersion, data.payload.buildTimestamp);
-                    if (data.payload.globalQuorum) {
-                        updateGlobalQuorum(data.payload.globalQuorum);
-                    }
-                    if (data.payload.failMode) {
-                        updateFailMode(data.payload.failMode);
-                    }
-                    break;
-                case 'event':
-                    addEvent(data.payload);
-                    break;
-                case 'slo_alert':
-                    addSLOAlert(data.payload);
-                    break;
-                case 'narration':
-                    showNarration(data.payload);
-                    break;
-            }
-        }
-        
-        function updateNodes(nodeData) {
-            // Preserve test nodes that start with 'test-'
-            const testNodes = new Map();
-            for (const [id, node] of nodes) {
-                if (id.startsWith('test-')) {
-                    testNodes.set(id, node);
-                    console.log(`Preserving test node: ${id}`);
-                }
-            }
-            
-            // Comparer les anciens et nouveaux états pour détecter les changements
-            const oldNodes = new Map(nodes);
-            
-            nodes.clear();
-            nodeData.forEach(node => {
-                nodes.set(node.id, node);
-                
-                // Ajouter un événement de diagnostic si l'état a changé
-                const oldNode = oldNodes.get(node.id);
-                if (oldNode && oldNode.health !== node.health) {
-                    const nowTs = Date.now();
-                    const isolationThresholdSec = 30;
-                    const timeSinceLastSeenSec = Math.round((nowTs - (node.lastSeen || 0)) / 1000);
-                    const timeSinceHeartbeatSec = Math.round((nowTs - (node.lastHeartbeat || node.lastSeen || 0)) / 1000);
-                    const isOnline = timeSinceLastSeenSec < isolationThresholdSec;
-                    addDiagnosticEvent(node.id, 'STATE_CHANGE', {
-                        reason: `Health changed from ${oldNode.health} to ${node.health}`,
-                        source: 'controller',
-                        oldHealth: oldNode.health,
-                        newHealth: node.health,
-                        alerts: node.alerts || 0,
-                        drops: node.drops || 0,
-                        lastSeen: node.lastSeen ? new Date(node.lastSeen).toLocaleTimeString() : 'N/A',
-                        lastHeartbeat: node.lastHeartbeat ? new Date(node.lastHeartbeat).toLocaleTimeString() : 'N/A',
-                        timeSinceLastSeenSec,
-                        timeSinceHeartbeatSec,
-                        isolationThresholdSec,
-                        isOnline
-                    });
-                }
-            });
-            
-            // Restore test nodes
-            for (const [id, node] of testNodes) {
-                nodes.set(id, node);
-                console.log(`Restored test node: ${id}`);
-            }
-            
-            console.log(`After updateNodes, total nodes: ${nodes.size}`);
-            updateNetworkGraph();
-            refreshAttackTargetOptions();
-        }
-        
-        function updateNodeStatus(nodeId, updates) {
-            const node = nodes.get(nodeId);
-            if (node) {
-                console.log(`Updating node ${nodeId}:`, updates);
-                Object.assign(node, updates);
-                console.log(`Node ${nodeId} new status:`, node);
-                updateNetworkGraph();
-                
-                // Force immediate visual update for this specific node
-                forceNodeVisualUpdate(nodeId, node);
-            } else {
-                console.log(`Node ${nodeId} not found in nodes map`);
-            }
-        }
-        
-        function forceNodeVisualUpdate(nodeId, node) {
-            if (!networkGraph) return;
-            
-            const { svg } = networkGraph;
-            console.log(`Looking for node element in SVG: ${nodeId}`);
-            
-            // Debug: log all existing nodes in SVG
-            const allNodes = svg.selectAll('.node');
-            console.log(`Total nodes in SVG: ${allNodes.size()}`);
-            allNodes.each(function(d) {
-                console.log(`SVG node: ${d.id}`);
-            });
-            
-            const nodeElement = svg.selectAll('.node').filter(d => d.id === nodeId);
-            
-            if (nodeElement.empty()) {
-                console.log(`Node element not found in SVG for ${nodeId}`);
-                console.log(`Available node IDs in SVG:`, allNodes.data().map(d => d.id));
-                return;
-            }
-            
-            console.log(`Force updating visual for node ${nodeId}`);
-            
-            // Update main circle class
-            nodeElement.select('circle.node-circle')
-                .attr('class', d => {
-                    let className = 'node-circle';
-                    if (d.health === 'protected') className += ' protected';
-                    else if (d.health === 'isolated') className += ' isolated';
-                    else if (d.health === 'drift') className += ' drift';
-                    else if (d.drops > 10) className += ' high-drops';
-                    else className += ' ok';
-                    console.log(`Force updated node ${d.id} class: ${className}`);
-                    return className;
-                });
-            
-            // Update TTL ring
-            nodeElement.select('circle.ttl-ring')
-                .style('fill', d => {
-                    if (d.health === 'protected') return '#3498db';
-                    else if (d.health === 'isolated') return '#95a5a6';
-                    else if (d.health === 'drift') return '#9b59b6';
-                    else if (d.drops > 10) return '#e74c3c';
-                    else return '#27ae60';
-                })
-                .style('opacity', d => d.health === 'protected' ? 1 : 0);
-        }
-        
-        function updateNetworkGraph() {
-            if (!networkGraph) return;
-            
-            console.log('Updating network graph...');
-            const { svg, simulation, width, height } = networkGraph;
-            const nodeArray = Array.from(nodes.values());
-            console.log('Nodes to update:', nodeArray.map(n => ({ id: n.id, health: n.health })));
-            
-            // Store existing node positions to preserve them
-            const existingNodes = svg.selectAll('.node').data();
-            const positionMap = new Map();
-            existingNodes.forEach(d => {
-                if (d.x !== undefined && d.y !== undefined) {
-                    positionMap.set(d.id, { x: d.x, y: d.y, fx: d.fx, fy: d.fy });
-                }
-            });
-            
-            // Create links between nodes (simplified topology)
-            const links = [];
-            for (let i = 0; i < nodeArray.length; i++) {
-                for (let j = i + 1; j < nodeArray.length; j++) {
-                    links.push({ source: nodeArray[i].id, target: nodeArray[j].id });
-                }
-            }
-            
-            // Update links data
-            const link = svg.selectAll('.edge')
-                .data(links, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
-            
-            // Remove old links
-            link.exit().remove();
-            
-            // Add new links
-            const linkEnter = link.enter().append('line')
-                .attr('class', 'edge');
-            
-            // Update existing links
-            link.merge(linkEnter);
-            
-            // Update nodes data
-            const node = svg.selectAll('.node')
-                .data(nodeArray, d => d.id);
-            
-            // Remove old nodes
-            node.exit().remove();
-            
-            // Add new nodes
-            const nodeEnter = node.enter().append('g')
-                .attr('class', 'node')
-                .call(d3.drag()
-                    .on('start', dragstarted)
-                    .on('drag', dragged)
-                    .on('end', dragended));
-            
-            // Add main circle for new nodes
-            nodeEnter.append('circle')
-                .attr('r', 20)
-                .attr('class', d => {
-                    let className = 'node-circle';
-                    if (d.health === 'protected') className += ' protected';
-                    else if (d.health === 'isolated') className += ' isolated';
-                    else if (d.health === 'drift') className += ' drift';
-                    else if (d.drops > 10) className += ' high-drops';
-                    else className += ' ok';
-                    return className;
-                });
-            
-            // Add TTL rings for new nodes
-            nodeEnter.append('circle')
-                .attr('r', 25)
-                .attr('class', 'ttl-ring')
-                .style('stroke', '#ffc107')
-                .style('fill', d => {
-                    if (d.health === 'protected') return '#3498db';
-                    else if (d.health === 'isolated') return '#95a5a6';
-                    else if (d.health === 'drift') return '#9b59b6';
-                    else if (d.drops > 10) return '#e74c3c';
-                    else return '#27ae60';
-                })
-                .style('opacity', d => d.health === 'protected' ? 1 : 0);
-            
-            // Add labels for new nodes
-            nodeEnter.append('text')
-                .attr('class', 'node-label')
-                .text(d => d.id);
-            
-            // Add tooltips for new nodes
-            nodeEnter.append('title')
-                .text(d => `Node: ${d.id}\nAlertes/min: ${d.alerts_1m || 0}\nDrops/min: ${d.drops_1m || 0}\nSanté: ${d.health}`);
-            
-            // Merge new and existing nodes
-            const nodeMerged = node.merge(nodeEnter);
-            
-            // Update existing nodes' main circle class
-            nodeMerged.select('circle.node-circle')
-                .attr('class', d => {
-                    let className = 'node-circle';
-                    if (d.health === 'protected') className += ' protected';
-                    else if (d.health === 'isolated') className += ' isolated';
-                    else if (d.health === 'drift') className += ' drift';
-                    else if (d.drops > 10) className += ' high-drops';
-                    else className += ' ok';
-                    console.log(`Node ${d.id} class: ${className}`);
-                    return className;
-                });
-            
-            // Update existing nodes' TTL rings
-            nodeMerged.select('circle.ttl-ring')
-                .style('fill', d => {
-                    if (d.health === 'protected') return '#3498db';
-                    else if (d.health === 'isolated') return '#95a5a6';
-                    else if (d.health === 'drift') return '#9b59b6';
-                    else if (d.drops > 10) return '#e74c3c';
-                    else return '#27ae60';
-                })
-                .style('opacity', d => d.health === 'protected' ? 1 : 0);
-            
-            // Update existing nodes' labels
-            nodeMerged.select('text.node-label')
-                .text(d => d.id);
-            
-            // Update existing nodes' tooltips
-            nodeMerged.select('title')
-                .text(d => `Node: ${d.id}\nAlertes/min: ${d.alerts_1m || 0}\nDrops/min: ${d.drops_1m || 0}\nSanté: ${d.health}`);
-            
-            // Restore positions for existing nodes
-            nodeArray.forEach(d => {
-                const pos = positionMap.get(d.id);
-                if (pos) {
-                    d.x = pos.x;
-                    d.y = pos.y;
-                    d.fx = pos.fx;
-                    d.fy = pos.fy;
-                }
-            });
-            
-            // Always update simulation data and restart gently
-            simulation.nodes(nodeArray);
-            simulation.force('link').links(links);
-            simulation.alpha(0.1).restart(); // Gentle restart to update positions
-            
-            // Update positions
-            simulation.on('tick', () => {
-                link
-                    .attr('x1', d => d.source.x)
-                    .attr('y1', d => d.source.y)
-                    .attr('x2', d => d.target.x)
-                    .attr('y2', d => d.target.y);
-                
-                nodeMerged
-                    .attr('transform', d => `translate(${d.x},${d.y})`);
-            });
-            
-            function dragstarted(event, d) {
-                if (!event.active) simulation.alphaTarget(0.3).restart();
-                d.fx = d.x;
-                d.fy = d.y;
-            }
-            
-            function dragged(event, d) {
-                d.fx = event.x;
-                d.fy = event.y;
-            }
-            
-            function dragended(event, d) {
-                if (!event.active) simulation.alphaTarget(0);
-                d.fx = null;
-                d.fy = null;
-            }
-        }
-        
-        function updateIOCs(iocData) {
-            iocs.clear();
-            iocData.forEach(ioc => {
-                iocs.set(`${ioc.kind}|${ioc.value}`, ioc);
-            });
-            
-            updateIOCTable();
-        }
-        
-        function updateIOCTable() {
-            const tbody = document.getElementById('iocTableBody');
-            
-            if (iocs.size === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #6c757d;">Aucun IOC actif</td></tr>';
-                return;
-            }
-            
-            tbody.innerHTML = Array.from(iocs.values()).map(ioc => {
-                const ttlRemaining = Math.max(0, Math.floor((ioc.endTime - Date.now()) / 1000));
-                const spread = Array.from(nodes.values()).filter(n => n.alerts > 0).length;
-                const efficiency = Math.floor(Math.random() * 100); // Placeholder
-                
-                let statusClass = 'status-active';
-                let statusText = 'Actif';
-                if (ttlRemaining === 0) {
-                    statusClass = 'status-expired';
-                    statusText = 'Expiré';
-                } else if (efficiency < 30) {
-                    statusClass = 'status-suspect';
-                    statusText = 'Suspect';
-                }
-                
-                return `
-                    <tr>
-                        <td>${ioc.kind.toUpperCase()}</td>
-                        <td>${ioc.value}</td>
-                        <td>${new Date(ioc.firstSeen).toLocaleTimeString()}</td>
-                        <td>${ioc.source || 'N/A'}</td>
-                        <td>${ioc.confidence || 'N/A'}</td>
-                        <td>${ttlRemaining}s</td>
-                        <td>${spread}/${nodes.size}</td>
-                        <td>${efficiency}%</td>
-                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                        <td>
-                            <button class="action-btn btn-expire" onclick="expireIOC('${ioc.kind}', '${ioc.value}')">Expirer</button>
-                            <button class="action-btn btn-extend" onclick="extendIOC('${ioc.kind}', '${ioc.value}')">+60s</button>
-                            <button class="action-btn btn-quorum" onclick="increaseQuorum('${ioc.kind}', '${ioc.value}')">Quorum</button>
-                            <button class="action-btn btn-quarantine" onclick="quarantineIOC('${ioc.kind}', '${ioc.value}')">Quarantaine</button>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-        }
-        
-        function updateKPIs(data) {
-            // Use real metrics from backend
-            const metrics = data.metrics || {};
-            
-            document.getElementById('mttd').textContent = metrics.mttd || '--';
-            document.getElementById('mttr').textContent = metrics.mttr || '--';
-            document.getElementById('containment-time').textContent = metrics.containmentTime || '--';
-            document.getElementById('containment-ratio').textContent = (metrics.containmentRatio || 0) + '%';
-        }
-        
-        function updateCoverage(nodeData, iocData) {
-            const nodesWithIOC = nodeData.filter(node => node.alerts > 0).length;
-            const totalNodes = nodeData.length;
-            const coverage = totalNodes > 0 ? (nodesWithIOC / totalNodes) * 100 : 0;
-            
-            document.getElementById('coverage-percentage').textContent = `${Math.round(coverage)}%`;
-            
-            // Update chart colors based on coverage
-            let color = '#dc3545'; // Red < 40%
-            if (coverage >= 40 && coverage <= 80) color = '#ffc107'; // Orange 40-80%
-            if (coverage > 80) color = '#28a745'; // Green > 80%
-            
-            coverageChart.data.datasets[0].data = [coverage, 100 - coverage];
-            coverageChart.data.datasets[0].backgroundColor = [color, '#e9ecef'];
-            coverageChart.update();
-        }
-        
-        function updateHealthStatus(nodeData) {
-            const container = document.getElementById('healthStatus');
-            
-            if (nodeData.length === 0) {
-                container.innerHTML = '<p>Aucun nœud connecté</p>';
-                return;
-            }
-            
-            container.innerHTML = nodeData.map(node => {
-                // Utiliser lastSeen pour la connectivité (plus robuste)
-                const timeSinceLastSeen = Date.now() - (node.lastSeen || 0);
-                const isOnline = timeSinceLastSeen < 30000; // 30s threshold seulement
-                const healthClass = isOnline ? 'health-online' : 'health-isolated';
-                const healthText = isOnline ? 'En ligne' : 'Isolé';
-                
-                // Determine node health status (cohérent avec le controller)
-                let nodeHealthStatus = '';
-                let nodeHealthClass = '';
-                if (node.health === 'protected') {
-                    nodeHealthStatus = '🔵 Protégé';
-                    nodeHealthClass = 'protected';
-                } else if (node.health === 'isolated') {
-                    nodeHealthStatus = '⚫ Isolé';
-                    nodeHealthClass = 'isolated';
-                } else if (node.health === 'drift') {
-                    nodeHealthStatus = '🟣 Dérive';
-                    nodeHealthClass = 'drift';
-                } else if (node.drops > 10) {
-                    nodeHealthStatus = '🟠 Beaucoup de drops';
-                    nodeHealthClass = 'high-drops';
-                } else {
-                    nodeHealthStatus = '🟢 OK';
-                    nodeHealthClass = 'ok';
-                }
-                
-                return `
-                    <div style="margin-bottom: 0.5rem; padding: 0.5rem; border-radius: 5px; background: #f8f9fa;">
-                        <div style="display: flex; align-items: center; margin-bottom: 0.25rem;">
-                            <span class="health-indicator ${healthClass}" style="margin-right: 0.5rem;"></span>
-                            <strong>${node.id}</strong>
-                            <span style="margin-left: auto; font-size: 0.8rem;">${healthText}</span>
-                        </div>
-                        <div style="font-size: 0.9rem; margin-bottom: 0.25rem;">
-                            <span class="health-status ${nodeHealthClass}" style="padding: 0.2rem 0.5rem; border-radius: 3px; font-size: 0.75rem; font-weight: bold;">${nodeHealthStatus}</span>
-                        </div>
-                        <div style="font-size: 0.75rem; color: #6c757d;">
-                            <div>🚨 Alertes: ${node.alerts || 0} (${node.alerts_1m || 0}/min)</div>
-                            <div>🛡️ Drops: ${node.drops || 0} (${node.drops_1m || 0}/min)</div>
-                            <div>📊 Réputation: ${Math.round((node.reputation || 0.5) * 100)}%</div>
-                            <div>⏰ Dernière activité: ${new Date(node.lastSeen).toLocaleTimeString()}</div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        }
-        
-        function updateSparklines(nodeData) {
-            const container = document.getElementById('sparklineContainer');
-            
-            if (nodeData.length === 0) {
-                container.innerHTML = '<p style="text-align: center; color: #6c757d;">Aucun nœud connecté</p>';
-                return;
-            }
-            
-            container.innerHTML = nodeData.map(node => {
-                const canvasId = `sparkline-${node.id}`;
-                return `
-                    <div class="sparkline-card">
-                        <div class="sparkline-title">${node.id}</div>
-                        <canvas id="${canvasId}" class="sparkline-canvas"></canvas>
-                    </div>
-                `;
-            }).join('');
-            
-            // Initialize sparklines
-            nodeData.forEach(node => {
-                const canvasId = `sparkline-${node.id}`;
-                const canvas = document.getElementById(canvasId);
-                if (canvas) {
-                    initializeSparkline(canvas, node);
-                }
-            });
-        }
-        
-        function initializeSparkline(canvas, node) {
-            const ctx = canvas.getContext('2d');
-            const width = canvas.width;
-            const height = canvas.height;
-            
-            // Generate sample data (in reality, you'd track historical data)
-            const data = Array.from({length: 20}, () => ({
-                alerts: Math.floor(Math.random() * 10),
-                drops: Math.floor(Math.random() * 15)
-            }));
-            
-            // Draw sparkline
-            ctx.clearRect(0, 0, width, height);
-            
-            // Draw alerts line
-            ctx.strokeStyle = '#dc3545';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            data.forEach((point, i) => {
-                const x = (i / (data.length - 1)) * width;
-                const y = height - (point.alerts / 10) * height;
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            });
-            ctx.stroke();
-            
-            // Draw drops line
-            ctx.strokeStyle = '#28a745';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            data.forEach((point, i) => {
-                const x = (i / (data.length - 1)) * width;
-                const y = height - (point.drops / 15) * height;
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            });
-            ctx.stroke();
-        }
-        
-        function addEvent(event) {
-            events.unshift(event);
-            if (events.length > 100) events.pop(); // Keep only last 100 events
-            
-            // Update node status based on event type
-            if (event.nodeId) {
-                switch (event.kind) {
-                    case 'hello':
-                        updateNodeStatus(event.nodeId, { 
-                            health: 'ok', 
-                            lastSeen: event.ts || Date.now(),
-                            lastHeartbeat: event.ts || Date.now()
-                        });
-                        break;
-                    case 'alert':
-                        updateNodeStatus(event.nodeId, { 
-                            health: 'ok', // Le nœud reste opérationnel après détection
-                            alerts: (nodes.get(event.nodeId)?.alerts || 0) + 1,
-                            lastSeen: event.ts || Date.now()
-                        });
-                        break;
-                    case 'drop':
-                        updateNodeStatus(event.nodeId, { 
-                            drops: (nodes.get(event.nodeId)?.drops || 0) + 1,
-                            lastSeen: event.ts || Date.now()
-                        });
-                        break;
-                    case 'ack':
-                        // Le nœud a appliqué un IOC partagé → état protected
-                        updateNodeStatus(event.nodeId, { 
-                            health: 'protected',
-                            lastSeen: event.ts || Date.now()
-                        });
-                        break;
-                    case 'heartbeat':
-                        updateNodeStatus(event.nodeId, { 
-                            lastHeartbeat: event.ts || Date.now(),
-                            lastSeen: event.ts || Date.now(),
-                            health: 'ok' // Node is alive if sending heartbeat
-                        });
-                        break;
-                }
-            }
-            
-            updateTimeline();
-        }
-        
-        // Fonction pour ajouter des événements de diagnostic
-        function addDiagnosticEvent(nodeId, action, details) {
-            const event = {
-                kind: 'diagnostic',
-                nodeId: nodeId,
-                action: action,
-                details: details,
-                ts: Date.now()
-            };
-            addEvent(event);
-        }
-        
-        function updateTimeline() {
-            const container = document.getElementById('timelineContainer');
-            const activeFilters = Array.from(document.querySelectorAll('.filter-btn.active')).map(btn => btn.dataset.filter);
-            
-            let filteredEvents = events;
-            if (!activeFilters.includes('all')) {
-                filteredEvents = events.filter(event => {
-                    // Map event types to filter names
-                    const eventType = event.kind || event.eventType;
-                    if (eventType === 'ioc.local') return activeFilters.includes('ioc-local');
-                    if (eventType === 'ioc.share') return activeFilters.includes('ioc-share');
-                    return activeFilters.includes(eventType);
-                });
-            }
-            
-            if (filteredEvents.length === 0) {
-                container.innerHTML = '<p style="text-align: center; color: #6c757d;">Aucun événement</p>';
-                return;
-            }
-            
-            container.innerHTML = filteredEvents.map(event => {
-                let eventText = '';
-                let eventClass = 'timeline-event';
-                const eventType = event.kind || event.eventType;
-                
-                switch (eventType) {
-                    case 'hello':
-                        eventText = `🟢 Node ${event.nodeId} connecté`;
-                        break;
-                    case 'alert':
-                        eventText = `🚨 Alerte sur ${event.nodeId}: ${event.reason || 'Attaque détectée'}`;
-                        eventClass += ' alert';
-                        break;
-                    case 'drop':
-                        eventText = `🛡️ Blocage sur ${event.nodeId}: ${event.value || 'Trafic bloqué'}`;
-                        eventClass += ' drop';
-                        break;
-                    case 'ioc.local':
-                        eventText = `🔍 IOC local détecté: ${event.iocKind || event.kind} ${event.value}`;
-                        eventClass += ' ioc-local';
-                        break;
-                    case 'ioc.share':
-                        eventText = `📡 IOC partagé: ${event.iocKind || event.kind} ${event.value}`;
-                        eventClass += ' ioc-share';
-                        break;
-                    case 'heartbeat':
-                        eventText = `💓 Heartbeat de ${event.nodeId}`;
-                        break;
-                    case 'ack':
-                        eventText = `✅ ACK de ${event.nodeId} pour ${event.iocKey}`;
-                        break;
-                    case 'diagnostic':
-                        eventText = `🔍 ${event.action} - ${event.nodeId}: ${event.details.reason}`;
-                        eventClass += ' diagnostic';
-                        break;
-                    case 'node_reconnected':
-                        eventText = `🟢 ${event.nodeId} reconnecté: ${event.reason}`;
-                        eventClass += ' reconnected';
-                        break;
-                    case 'slo_alert':
-                        eventText = `🚨 SLO Alert: ${event.message}`;
-                        eventClass += ' alert';
-                        break;
-                    case 'node_isolated':
-                        eventText = `🔌 Nœud ${event.nodeId} isolé: ${event.reason || 'Pas de heartbeat'}`;
-                        eventClass += ' alert';
-                        break;
-                    case 'node_reconnected':
-                        eventText = `🟢 Nœud ${event.nodeId} reconnecté: ${event.reason || 'Heartbeat restauré'}`;
-                        break;
-                    default:
-                        eventText = `📝 ${eventType}: ${JSON.stringify(event)}`;
-                }
-                
-                return `
-                    <div class="${eventClass}">
-                        <div>${eventText}</div>
-                        ${event.kind === 'diagnostic' ? `
-                            <div class="diagnostic-details" style="font-size: 0.8em; color: #666; margin-top: 2px;">
-                                ${event.details.source ? `🔗 ${event.details.source}` : ''}
-                                ${event.details.timeSinceLastSeenSec !== undefined ? ` | ⏱️ lastSeen: ${event.details.timeSinceLastSeenSec}s` : ''}
-                                ${event.details.timeSinceHeartbeatSec !== undefined ? ` | 💓 heartbeat: ${event.details.timeSinceHeartbeatSec}s` : ''}
-                                ${event.details.isolationThresholdSec !== undefined ? ` | 🎚️ seuil: ${event.details.isolationThresholdSec}s` : ''}
-                                ${event.details.isOnline !== undefined ? ` | 🌐 online: ${event.details.isOnline ? 'oui' : 'non'}` : ''}
-                                ${event.details.lastSeen ? ` | 📅 ${event.details.lastSeen}` : ''}
-                                ${event.details.lastHeartbeat ? ` | 💓 ${event.details.lastHeartbeat}` : ''}
-                                ${event.details.alerts !== undefined ? ` | 🚨 ${event.details.alerts} alerts` : ''}
-                                ${event.details.drops !== undefined ? ` | 🛡️ ${event.details.drops} drops` : ''}
-                            </div>
-                        ` : ''}
-                        <div class="timestamp">${new Date(event.timestamp || event.ts || Date.now()).toLocaleTimeString()}</div>
-                    </div>
-                `;
-            }).join('');
-        }
-        
-        // Event handlers
-        document.querySelectorAll('.filter-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-                this.classList.add('active');
-                updateTimeline();
-            });
-        });
-        
-        // IOC Actions
-        function expireIOC(kind, value) {
-            console.log(`Expiring IOC: ${kind} ${value}`);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'command',
-                    action: 'expireIOC',
-                    kind: kind,
-                    value: value
-                }));
-            }
-        }
-        
-        function extendIOC(kind, value) {
-            console.log(`Extending IOC: ${kind} ${value}`);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'command',
-                    action: 'extendIOC',
-                    kind: kind,
-                    value: value
-                }));
-            }
-        }
-        
-        function increaseQuorum(kind, value) {
-            console.log(`Increasing quorum for: ${kind} ${value}`);
-            // This would require more complex backend logic
-            alert('Fonctionnalité en cours de développement');
-        }
-        
-        function quarantineIOC(kind, value) {
-            console.log(`Quarantining IOC: ${kind} ${value}`);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'command',
-                    action: 'quarantineIOC',
-                    kind: kind,
-                    value: value
-                }));
-            }
-        }
-        
-        // Demo Functions
-        function simulateFalsePositive() {
-            console.log('Simulating false positive...');
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'command',
-                    action: 'simulateFalsePositive',
-                    nodeId: 'node-1'
-                }));
-            }
-        }
-        
-        function simulateIOCFlood() {
-            console.log('Simulating IOC flood...');
-            // This would trigger multiple IOC.local messages
-            // In a real implementation, you'd send multiple IOC messages
-            alert('Simulation IOC Flood - Envoi de multiples IOC.locals...');
-        }
-        
-        function simulateNodeIsolation() {
-            console.log('Simulating node isolation...');
-            
-            // Trouver un nœud existant à isoler
-            const existingNodes = Array.from(nodes.values()).filter(node => 
-                !node.id.startsWith('test-') && node.health !== 'isolated'
-            );
-            
-            if (existingNodes.length === 0) {
-                console.log('No existing nodes available for isolation simulation');
-                alert('Aucun nœud existant disponible pour la simulation d\'isolation');
-                return;
-            }
-            
-            // Choisir le premier nœud disponible
-            const targetNode = existingNodes[0];
-            const nodeId = targetNode.id;
-            console.log(`Simulating isolation of existing node: ${nodeId}`);
-            
-            // Sauvegarder l'état original du nœud
-            const originalState = {
-                health: targetNode.health,
-                lastSeen: targetNode.lastSeen,
-                lastHeartbeat: targetNode.lastHeartbeat
-            };
-            
-            // Simuler l'isolation après un court délai
-            setTimeout(() => {
-                console.log(`Simulating isolation of node ${nodeId}...`);
-                if (nodes.has(nodeId)) {
-                    // Marquer le nœud comme isolé en modifiant lastSeen pour qu'il soit ancien
-                    const oldLastSeen = Date.now() - 60000; // 60 secondes dans le passé
-                    updateNodeStatus(nodeId, { 
-                        health: 'isolated',
-                        lastSeen: oldLastSeen,
-                        lastHeartbeat: oldLastSeen
-                    });
-                    
-                    // Ajouter un événement d'isolation
-                    addEvent({
-                        kind: 'node_isolated',
-                        nodeId: nodeId,
-                        reason: 'Simulation d\'isolation - Pas d\'activité depuis 60s',
-                        ts: Date.now()
-                    });
-                    
-                    // Ajouter un événement de diagnostic
-                    addDiagnosticEvent(nodeId, 'ISOLATED', {
-                        reason: 'Simulation',
-                        source: 'simulation',
-                        timeSinceLastSeenSec: 60,
-                        lastSeen: new Date(oldLastSeen).toLocaleTimeString(),
-                        isolationThresholdSec: 30,
-                        alerts: targetNode.alerts || 0,
-                        drops: targetNode.drops || 0,
-                        originalHealth: originalState.health
-                    });
-                }
-            }, 1000);
-            
-            // Simuler la reconnexion après 5 secondes
-            setTimeout(() => {
-                console.log(`Simulating reconnection of node ${nodeId}...`);
-                if (nodes.has(nodeId)) {
-                    updateNodeStatus(nodeId, { 
-                        health: originalState.health, // Restaurer l'état original
-                        lastSeen: Date.now(),
-                        lastHeartbeat: Date.now()
-                    });
-                    
-                    // Ajouter un événement de reconnexion
-                    addEvent({
-                        kind: 'node_reconnected',
-                        nodeId: nodeId,
-                        reason: 'Simulation de reconnexion - Heartbeat restauré',
-                        ts: Date.now()
-                    });
-                    
-                    // Ajouter un événement de diagnostic
-                    addDiagnosticEvent(nodeId, 'RECONNECTED', {
-                        reason: 'Simulation',
-                        source: 'simulation',
-                        timeSinceLastSeenSec: 0,
-                        lastSeen: new Date().toLocaleTimeString(),
-                        restoredHealth: originalState.health
-                    });
-                }
-            }, 5000);
-        }
-        
-        function toggleFailMode() {
-            console.log('Toggling fail mode...');
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'command',
-                    action: 'toggleFailMode'
-                }));
-            }
-        }
-        
-        function testNodeStatusUpdate() {
-            console.log('Testing node status update...');
-            console.log('Current nodes:', Array.from(nodes.keys()));
-            
-            // Create a test node if it doesn't exist
-            if (!nodes.has('test-node')) {
-                console.log('Creating test-node...');
-                nodes.set('test-node', {
-                    id: 'test-node',
-                    alerts: 0,
-                    drops: 0,
-                    health: 'ok',
-                    lastSeen: Date.now(),
-                    alerts_1m: 0,
-                    drops_1m: 0,
-                    lastHeartbeat: Date.now(),
-                    blocklistEntries: 0,
-                    iocAcks: new Map(),
-                    reputation: 0.5
-                });
-                updateNetworkGraph();
-                console.log('Test node created, current nodes:', Array.from(nodes.keys()));
-            } else {
-                console.log('Test node already exists');
-            }
-            
-            // Test status changes - wait longer to ensure SVG is updated
-            setTimeout(() => {
-                console.log('Setting test-node to isolated...');
-                console.log('Test node exists before update:', nodes.has('test-node'));
-                if (nodes.has('test-node')) {
-                    updateNodeStatus('test-node', { health: 'isolated' });
-                } else {
-                    console.error('Test node not found! Recreating...');
-                    // Recreate the test node
-                    nodes.set('test-node', {
-                        id: 'test-node',
-                        alerts: 0,
-                        drops: 0,
-                        health: 'isolated',
-                        lastSeen: Date.now(),
-                        alerts_1m: 0,
-                        drops_1m: 0,
-                        lastHeartbeat: Date.now(),
-                        blocklistEntries: 0,
-                        iocAcks: new Map(),
-                        reputation: 0.5
-                    });
-                    updateNetworkGraph();
-                }
-            }, 2000); // Increased delay
-            
-            setTimeout(() => {
-                console.log('Setting test-node to protected...');
-                console.log('Test node exists before update:', nodes.has('test-node'));
-                if (nodes.has('test-node')) {
-                    updateNodeStatus('test-node', { health: 'protected', alerts: 5 });
-                } else {
-                    console.error('Test node not found!');
-                }
-            }, 3000);
-            
-            setTimeout(() => {
-                console.log('Setting test-node back to ok...');
-                console.log('Test node exists before update:', nodes.has('test-node'));
-                if (nodes.has('test-node')) {
-                    updateNodeStatus('test-node', { health: 'ok', alerts: 0 });
-                } else {
-                    console.error('Test node not found!');
-                }
-            }, 5000);
-        }
-    </script>
+function poserMesure(nom, valeur, seuil, etat) {
+  const li = mesures[nom];
+  li.querySelector('[data-role="valeur"]').textContent = valeur;
+  li.querySelector('[data-role="seuil"]').textContent = seuil;
+  li.dataset.etat = etat;
+}
+
+function verdict(valeur, max) {
+  // null = pas encore mesuré : ni tenu, ni dépassé.
+  if (valeur == null) return 'neutre';
+  if (valeur > max) return 'depasse';
+  if (valeur > max * 0.8) return 'limite';
+  return 'tenu';
+}
+
+function majMesures(etat) {
+  const m = etat.metrics;
+  const s = etat.thresholds;
+
+  poserMesure('mttd', millis(m.mttd), `cible ≤ ${millis(s.mttdMaxMs)}`, verdict(m.mttd, s.mttdMaxMs));
+  poserMesure('mttr', millis(m.mttr), `cible ≤ ${millis(s.mttrMaxMs)}`, verdict(m.mttr, s.mttrMaxMs));
+  poserMesure(
+    'containment',
+    millis(m.containmentTime),
+    `cible ≤ ${millis(s.containmentMaxMs)}`,
+    verdict(m.containmentTime, s.containmentMaxMs),
+  );
+
+  const d = m.coverageDetail || { protectedNodes: 0, totalNodes: 0, activeIOCs: 0 };
+  poserMesure(
+    'coverage',
+    d.activeIOCs === 0 ? '—' : `${m.coverage} %`,
+    d.activeIOCs === 0
+      ? 'aucun IOC à propager'
+      : `${d.protectedNodes} arbres sur ${d.totalNodes}`,
+    d.activeIOCs === 0 ? 'tenu' : m.coverage >= 100 ? 'tenu' : m.coverage >= 50 ? 'limite' : 'depasse',
+  );
+
+  poserMesure(
+    'iocRate',
+    `${String(m.iocRate).replace('.', ',')} /s`,
+    `afflux au-delà de ${s.iocFloodPerSec} /s`,
+    m.iocRate > s.iocFloodPerSec ? 'depasse' : 'tenu',
+  );
+
+  document.getElementById('etat-flood').textContent = etat.floodMode
+    ? 'Mode afflux actif — quorum relevé'
+    : '';
+}
+
+/* --- Table des IOC ------------------------------------------------------- */
+
+const corpsIOC = document.getElementById('corps-iocs');
+
+function statutIOC(ioc) {
+  const restant = ioc.ttlRemainingSec;
+  // « Quarantaine » prêtait à confusion : en sécurité le mot désigne
+  // d'ordinaire l'isolement d'une machine, alors qu'ici l'action ne fait
+  // qu'allonger la durée de blocage de l'indicateur. Aucun arbre n'est touché.
+  if (ioc.endTime - Date.now() > 12 * 3600 * 1000) return { cle: 'signal', texte: 'Bloqué 24 h' };
+  if (restant < 30) return { cle: 'detector', texte: 'Expire bientôt' };
+  return { cle: 'protected', texte: 'Actif' };
+}
+
+function majIOCs(etat) {
+  const iocs = etat.activeIOCs || [];
+  document.getElementById('compteur-iocs').textContent = iocs.length
+    ? pluriel(iocs.length, 'indicateur')
+    : '';
+
+  if (iocs.length === 0) {
+    corpsIOC.innerHTML =
+      '<tr><td colspan="8"><p class="vide">Aucun indicateur actif. ' +
+      'Le mycélium n\'a rien à propager.</p></td></tr>';
+    return;
+  }
+
+  corpsIOC.innerHTML = iocs
+    .map(ioc => {
+      const st = statutIOC(ioc);
+      const cle = ech(ioc.key);
+      return `<tr>
+        <td>${ech(ioc.kind.toUpperCase())}</td>
+        <td class="donnee">${ech(ioc.value)}</td>
+        <td>${ech(ioc.source)}</td>
+        <td class="donnee">${ioc.voteCount} / ${ioc.quorumRequired}</td>
+        <td class="donnee">${ioc.ackCount} / ${etat.totalNodes}</td>
+        <td class="donnee">${ech(duree(ioc.ttlRemainingSec))}</td>
+        <td><span class="badge" data-etat="${st.cle}">${st.texte}</span></td>
+        <td>
+          <div class="actions-cellule">
+            <button class="btn btn-petit btn-danger" data-action="expireIOC" data-cle="${cle}">Expirer</button>
+            <button class="btn btn-petit" data-action="extendIOC" data-cle="${cle}">+60 s</button>
+            <button class="btn btn-petit" data-action="quarantineIOC" data-cle="${cle}">Bloquer 24 h</button>
+          </div>
+        </td>
+      </tr>`;
+    })
+    .join('');
+
+  reappliquerConfirmation();
+}
+
+/* La table est reconstruite deux fois par seconde par le flux d'état. La
+ * confirmation en deux temps ne peut donc pas vivre dans le DOM : le bouton
+ * « Confirmer ? » était remplacé avant qu'on ait pu le recliquer, ce qui
+ * rendait Expirer et Quarantaine impossibles à déclencher. On garde l'état
+ * ici et on le réapplique après chaque rendu. */
+let confirmationEnCours = null; // { action, cle, minuteur }
+
+function annulerConfirmation() {
+  if (confirmationEnCours?.minuteur) clearTimeout(confirmationEnCours.minuteur);
+  confirmationEnCours = null;
+}
+
+function reappliquerConfirmation() {
+  if (!confirmationEnCours) return;
+  const { action, cle } = confirmationEnCours;
+  const bouton = corpsIOC.querySelector(
+    `[data-action="${action}"][data-cle="${CSS.escape(cle)}"]`,
+  );
+  // La ligne a disparu entre-temps (IOC expiré) : la confirmation n'a plus
+  // d'objet.
+  if (!bouton) { annulerConfirmation(); return; }
+  bouton.textContent = 'Confirmer ?';
+  bouton.classList.add('btn-danger');
+}
+
+corpsIOC.addEventListener('click', evt => {
+  const bouton = evt.target.closest('[data-action]');
+  if (!bouton) return;
+  const action = bouton.dataset.action;
+  const cle = bouton.dataset.cle;
+  const [kind, ...reste] = cle.split('|');
+  const message = { action, kind, value: reste.join('|') };
+
+  // Prolonger est réversible (il suffit de laisser expirer) : pas de garde.
+  if (action === 'extendIOC') {
+    bus.envoyer(message);
+    return;
+  }
+
+  // Deuxième clic sur la même action et la même ligne : on exécute.
+  if (confirmationEnCours?.action === action && confirmationEnCours.cle === cle) {
+    annulerConfirmation();
+    bus.envoyer(message);
+    return;
+  }
+
+  annulerConfirmation();
+  confirmationEnCours = {
+    action,
+    cle,
+    minuteur: setTimeout(() => { confirmationEnCours = null; }, 5000),
+  };
+  reappliquerConfirmation();
+});
+
+/* --- Arbres -------------------------------------------------------------- */
+
+const corpsArbres = document.getElementById('corps-arbres');
+
+function majArbres(etat) {
+  const noeuds = [...etat.nodes].sort((a, b) => a.id.localeCompare(b.id));
+  if (noeuds.length === 0) {
+    corpsArbres.innerHTML =
+      '<tr><td colspan="6"><p class="vide">Aucun arbre connecté.</p></td></tr>';
+    return;
+  }
+
+  const maintenant = Date.now();
+  corpsArbres.innerHTML = noeuds
+    .map(n => {
+      const etatCle = n.isDetector ? 'detector' : n.health;
+      const libelle = n.isDetector ? LIBELLE_ETAT.detector : LIBELLE_ETAT[n.health];
+      const vu = Math.round((maintenant - n.lastSeen) / 1000);
+      return `<tr>
+        <td>${ech(n.id)}</td>
+        <td><span class="badge" data-etat="${etatCle}">${ech(libelle)}</span></td>
+        <td class="donnee">${n.alerts} <span class="meta">(${n.alerts_1m}/min)</span></td>
+        <td class="donnee">${n.drops} <span class="meta">(${n.drops_1m}/min)</span></td>
+        <td class="donnee">${Math.round(n.reputation * 100)} %</td>
+        <td class="donnee">${ech(duree(vu))}</td>
+      </tr>`;
+    })
+    .join('');
+}
+
+/* --- Alertes de service -------------------------------------------------- */
+
+function majAlertes(alertes) {
+  const conteneur = document.getElementById('alertes');
+  if (!alertes || alertes.length === 0) {
+    conteneur.innerHTML = '<li><p class="vide">Aucune alerte. Les SLO sont tenus.</p></li>';
+    return;
+  }
+  conteneur.innerHTML = alertes
+    .map(
+      a => `<li class="alerte" data-severite="${ech(a.severity)}">
+        ${ech(a.message)}
+        <time>${ech(heure(a.timestamp))}</time>
+      </li>`,
+    )
+    .join('');
+}
+
+/* --- Journal ------------------------------------------------------------- */
+
+const evenements = [];
+const journal = document.getElementById('journal');
+const filtres = [...document.querySelectorAll('[data-filtre]')];
+
+function filtresActifs() {
+  return filtres.filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.dataset.filtre);
+}
+
+function rendreJournal() {
+  const actifs = filtresActifs();
+  const liste = actifs.includes('tous')
+    ? evenements
+    : evenements.filter(e => actifs.includes(e.kind));
+  rendreEvenements(journal, liste, 60);
+  document.getElementById('compteur-journal').textContent = `${liste.length} événements`;
+}
+
+for (const bouton of filtres) {
+  bouton.addEventListener('click', () => {
+    const estTous = bouton.dataset.filtre === 'tous';
+    if (estTous) {
+      for (const b of filtres) b.setAttribute('aria-pressed', String(b === bouton));
+    } else {
+      const nouvel = bouton.getAttribute('aria-pressed') !== 'true';
+      bouton.setAttribute('aria-pressed', String(nouvel));
+      filtres[0].setAttribute('aria-pressed', 'false');
+      // Plus aucun filtre coché : on revient à « Tout » plutôt que de
+      // montrer une liste vide sans raison.
+      if (filtresActifs().length === 0) filtres[0].setAttribute('aria-pressed', 'true');
+    }
+    rendreJournal();
+  });
+}
+
+bus.sur('event', ev => {
+  if (ev.kind === 'reset') {
+    evenements.length = 0;
+    for (const b of document.querySelectorAll('[data-trafic]')) {
+      if (b.dataset.trafic !== 'attack') {
+        b.setAttribute('aria-pressed', String(b.dataset.trafic === 'stop'));
+      }
+    }
+  }
+
+  evenements.unshift({ ...ev, ts: ev.ts || Date.now() });
+  if (evenements.length > 200) evenements.pop();
+  rendreJournal();
+
+  if (ev.kind === 'ioc.share') {
+    mycelium.propager({ source: ev.source, targets: ev.targets || [] });
+  } else if (ev.kind === 'ack') {
+    mycelium.accuser(ev.nodeId);
+  }
+});
+
+bus.sur('slo_alert', alerte => {
+  evenements.unshift({ ...alerte, kind: 'slo_alert', ts: alerte.timestamp });
+  rendreJournal();
+});
+
+/* --- Contrôles ----------------------------------------------------------- */
+
+const quorum = document.getElementById('quorum');
+const quorumValeur = document.getElementById('quorum-valeur');
+let quorumEnMain = false;
+
+quorum.addEventListener('pointerdown', () => { quorumEnMain = true; });
+quorum.addEventListener('focus', () => { quorumEnMain = true; });
+quorum.addEventListener('blur', () => { quorumEnMain = false; });
+
+quorum.addEventListener('input', () => {
+  quorumValeur.textContent = `${pluriel(Number(quorum.value), 'voix requise', 'voix requises')}`;
+});
+
+// Une seule commande, au relâchement : « input » en envoyait une par pixel.
+quorum.addEventListener('change', () => {
+  bus.envoyer({ action: 'updateQuorum', value: Number(quorum.value) });
+  quorumEnMain = false;
+});
+
+const failMode = document.getElementById('fail-mode');
+failMode.addEventListener('click', () => bus.envoyer({ action: 'toggleFailMode' }));
+
+document.getElementById('sim-fp').addEventListener('click', () => {
+  bus.envoyer({ action: 'simulateFalsePositive', nodeId: document.getElementById('cible').value || undefined });
+});
+document.getElementById('sim-flood').addEventListener('click', () => {
+  bus.envoyer({ action: 'simulateIOCFlood' });
+});
+document.getElementById('sim-isolation').addEventListener('click', evt => {
+  confirmerPuis(evt.currentTarget, () =>
+    bus.envoyer({
+      action: 'simulateNodeIsolation',
+      nodeId: document.getElementById('cible').value || undefined,
+    }),
+  );
+});
+
+document.getElementById('reset').addEventListener('click', evt => {
+  confirmerPuis(evt.currentTarget, () => {
+    bus.envoyer({ action: 'resetDemo' });
+    narration.cacher();
+  });
+});
+
+/* --- État global --------------------------------------------------------- */
+
+bus.sur('state', etat => {
+  mycelium.majEtat(etat);
+  trafic.majCibles(etat.nodes);
+  majMesures(etat);
+  majIOCs(etat);
+  majArbres(etat);
+  majAlertes(etat.sloAlerts);
+
+  // Le serveur peut relever le quorum tout seul (mode afflux). On ne
+  // reprend la main sur le curseur que si l'opérateur ne le tient pas.
+  if (!quorumEnMain && Number(quorum.value) !== etat.globalQuorum) {
+    quorum.value = etat.globalQuorum;
+    quorumValeur.textContent = pluriel(etat.globalQuorum, 'voix requise', 'voix requises');
+  }
+  failMode.textContent = etat.failMode;
+  // Forme courte dans l'en-tête, horodatage complet au survol : ce qu'on
+  // vérifie d'un coup d'œil c'est « ma reconstruction est-elle prise ? ».
+  const version = document.getElementById('version');
+  version.textContent = `v${etat.systemVersion} · build ${heure(etat.buildTimestamp)}`;
+  version.title = `Version ${etat.systemVersion} — build du ${dateHeure(etat.buildTimestamp)}`;
+});
+</script>
 </body>
 </html>

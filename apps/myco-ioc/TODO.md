@@ -4,45 +4,40 @@
 
 ## Lot B — reste
 
-### B2 — Mode démo simplifié *(petit, prêt à attaquer)*
+### ~~B2 — Mode démo simplifié~~ *(livré autrement)*
 
-Toggle UI qui masque les widgets SLO/réputation/fail-mode pour ne garder que ce qui raconte l'analogie mycélium : topologie, IOCs actifs, timeline d'événements, contrôles trafic, narration de la démo guidée.
-
-- Bouton compact dans le header de `visual.html` : **« 🌱 Mode démo »** (par défaut) / **« 🛰 Mode avancé »**.
-- En mode démo, masquer (via `display: none` sur les `.panel`) :
-  - KPI MTTD/MTTR/Containment Time/Containment Ratio
-  - Panel « SLO/SLA Monitoring » (les 4 cards SLO)
-  - Panel « SLO Alerts »
-  - Panel « Couverture IOC » (donut)
-  - Panel « Santé & Synchronisation »
-  - Panel « Sparklines par Nœud »
-  - Panel « Contrôles » (slider quorum + toggle fail-mode + boutons simulate*)
-- Préférence persistée en `localStorage` (clé `myco-mode`).
-- Pas de changement backend nécessaire — purement UI.
-
-Tradeoff : on garde tout le code SLO/réputation/fail-mode actif en arrière-plan ; seules les visualisations sont cachées. Une variante plus radicale serait un flag `DEMO_MODE=true` côté controller qui désactive aussi les checks SLO — overkill pour la pédagogie.
+Le besoin — « ne garder que ce qui raconte l'analogie mycélium » — est couvert par la
+refonte des dashboards : `/` est la vue de projection (topologie, propagation, récit,
+pupitre) et `/visual` la vue opérateur (SLO, quorum, simulations). Deux URL au lieu
+d'un toggle et d'un `localStorage`, et chaque page est complète pour son usage.
 
 ### Bug pré-existant repéré pendant les tests
 
 - Le `node` log une stacktrace complète par message `traffic.http` malformé (cf. commit B5 qui n'a pas changé ce comportement). Pour une démo robuste, dégrader le log en `log.warn("malformed traffic event", { err })` sans stack — quand un payload externe est cassé, ça inonde les logs et masque les vraies erreurs.
 
-## Lot C — visuel mycélium *(½ journée, vend la démo)*
+## Lot C — visuel mycélium
 
-Reste à faire dans son intégralité. Voir le diagnostic d'origine pour la motivation : la métaphore mycélium est aujourd'hui invisible dans la topologie D3 force-directed standard.
+### ~~C1 — Topologie en thalle + particules~~ *(livré)*
+Thalle organique au centre, arbres en couronne elliptique, layout radial déterministe
+(plus de force-simulation qui s'agite en permanence). Chaque `ioc.share` envoie une spore
+de l'arbre détecteur vers le thalle puis vers chaque voisin ; la cible ne change de
+couleur qu'à réception de son `ack`. Voir `controller/public/shared/mycelium.js`.
 
-### C1 — Topologie en thalle + feuilles
-- Bus NATS rendu au centre comme un *thalle* (forme organique SVG, pas un nœud rond).
-- Nodes périphériques en *feuilles d'arbre* qui se colorient selon `health` (au lieu des cercles uniformes actuels).
-- Chaque IOC partagé = une particule lumineuse animée qui voyage du node détecteur, traverse le bus, irrigue les autres feuilles (animation D3 le long des arêtes, ~800 ms).
+### ~~C2 — Halo TTL~~ *(livré)*
+Arc qui se résorbe autour de chaque arbre protégé, proportionnel au temps restant sur
+l'IOC appliqué le plus long.
 
-### C2 — Halo TTL
-- Cercle qui se résorbe progressivement autour de chaque feuille tant qu'elle a au moins un IOC actif. Donne le sens *temps* sans regarder un compteur.
+### C3 — « Phéromone trail » *(reste à faire)*
+- Épaisseur des hyphes proportionnelle au volume d'IOCs partagés sur les 60 dernières secondes (analogie fourmis / blob de Physarum).
+- Demande un historique côté controller : aujourd'hui le payload ne porte que l'instantané.
 
-### C3 — « Phéromone trail »
-- Épaisseur des arêtes proportionnelle au volume d'IOCs partagés sur les 60 dernières secondes (analogie fourmis / blob de Physarum).
+### C4 — Arbres en feuilles plutôt qu'en disques *(reste à faire)*
+Les arbres sont rendus en disques colorés. Une silhouette de feuille (SVG dessiné, pas
+d'emoji) porterait mieux la métaphore, à condition de garder la lisibilité à distance
+et la zone de focus clavier.
 
 ## Améliorations potentielles (non priorisées)
 
 - **Tests d'intégration éphémères** : aujourd'hui le smoke test attend une stack courante. Une variante `npm run test:ephemeral` qui spawn une compose dédiée + tear down — utile en CI.
-- **Reset complet de démo** : un bouton « 🔄 Reset » qui vide `state.activeIOCs`, `state.votes`, `state.metrics.*`, `state.sloAlerts` et publie un `traffic.control stop`.
-- **Pause / resume de la démo guidée** : actuellement on ne peut pas annuler une démo en cours (juste attendre les 60s).
+- ~~**Reset complet de démo**~~ *(livré)* : bouton « Remettre à zéro » sur les deux vues. Purge l'état du controller (`resetDemoState`), **les blocklists locales des nodes via le nouveau topic `ioc.flush`** — le point que la version envisagée dans ce TODO aurait manqué — et arrête le trafic.
+- ~~**Pause / resume de la démo guidée**~~ *(livré en partie)* : la démo est interruptible (`stopGuidedDemo`, bouton « Interrompre » dans la bande de narration). Pas de reprise à l'étape courante.

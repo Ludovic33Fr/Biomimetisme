@@ -115,12 +115,13 @@ C'est le système le plus complexe et celui qui requiert de lire plusieurs fichi
 |-------|------------|--------------|------|
 | `traffic.http` | traffic / natsbox | node (filtre par `nodeId`) | événement HTTP simulé |
 | `traffic.control` | controller | traffic | start/stop/low/normal/attack |
-| `nodes.hello` | node (toutes les 5 s) | controller | présence + heartbeat |
+| `nodes.hello` | node (toutes les 5 s) | controller | présence + heartbeat — **battement, pas événement** : le controller ne rediffuse vers l'UI qu'une vraie arrivée (`hello`) ou un retour après isolation (`node_reconnected`), sinon le journal se noie sous 4 lignes toutes les 5 s |
 | `hb.<nodeId>` | node | controller | heartbeat (isolation si > 15 s) |
 | `alerts.<nodeId>` | node | controller | détection locale |
 | `drops.<nodeId>` | node | controller | requête bloquée par blocklist |
 | `ioc.local` | node | controller | candidat IOC, soumis au quorum |
 | `ioc.share` | controller | node (tous) | IOC validé à appliquer |
+| `ioc.flush` | controller | node (tous) | remise à zéro : le node vide sa blocklist locale et sa fenêtre de détection |
 | `ioc.sync.request` (req/reply) | node au démarrage | controller | resynchro des IOCs actifs |
 | `ack.<nodeId>` | node | controller | accusé d'application d'un IOC |
 | `metrics.controller` | controller (toutes les 10 s) | externe | export SLO |
@@ -132,9 +133,13 @@ C'est le système le plus complexe et celui qui requiert de lire plusieurs fichi
 - détection « IOC flood » (> `IOC_FLOOD_THRESHOLD` IOC/s) → augmente le quorum, retombe à la moitié du seuil
 - réputation par node (`[0..1]`, défaut 0.5, ±0.1/0.05) qui pondère le quorum
 - nettoyage périodique des IOCs expirés + métriques 1 min toutes les secondes
-- WebSocket bidirectionnel avec le dashboard (commandes : `updateQuorum`, `expireIOC`, `extendIOC`, `quarantineIOC`, `simulateFalsePositive`, `simulateIOCFlood`, `simulateNodeIsolation`, `toggleFailMode`, `trafficControl`)
+- WebSocket bidirectionnel avec le dashboard (commandes : `updateQuorum`, `expireIOC`, `extendIOC`, `quarantineIOC`, `simulateFalsePositive`, `simulateIOCFlood`, `simulateNodeIsolation`, `toggleFailMode`, `trafficControl`, `runGuidedDemo`, `stopGuidedDemo`, `resetDemo`)
 
-**Dashboards servis par le controller** : `/` (simple) et `/visual` (avancé avec timeline SLO). Toute modification visuelle se fait dans `controller/public/*.html`.
+**Remise à zéro (`resetDemo`)** : l'état « zéro protection » se joue en trois temps, et vider l'état du controller ne suffit pas. Les blocklists vivent dans la mémoire de chaque node : sans le message `ioc.flush`, les arbres continuent de bloquer et la démo suivante démarre déjà protégée. `resetDemo` purge donc (1) l'état du controller via `resetDemoState`, (2) les blocklists des nodes via `ioc.flush`, (3) le trafic via `traffic.control stop`.
+
+**Dashboards servis par le controller** : `/` = **projection** (topologie mycélienne plein écran, propagation animée, légende, récit en 4 temps, pupitre de démo) et `/visual` = **opérateur** (mesures SLO, table des IOC, quorum, santé des arbres, simulations). Les deux partagent `controller/public/shared/` : `theme.css` (jetons de couleur — un seul jeu, ne pas réintroduire de couleurs en dur), `bus.js` (client WS avec backoff), `mycelium.js` (topologie + animation de propagation), `ui.js`, `format.js`, `icons.js`. Aucune dépendance externe ni CDN : les pages doivent rester utilisables sans réseau.
+
+Règle de fond sur ces dashboards : **tout ce qui est affiché vient du payload du controller**. Pas de valeur reconstituée ni de donnée de remplissage côté navigateur. Un arbre ne passe au bleu « vacciné » qu'à réception de son `ack` réel. Toute valeur insérée dans le DOM passe par `ech()` (les IOCs viennent du réseau).
 
 **Variables d'environnement principales** (cf. `docker-compose.yml`) : `NATS_URL`, `NODE_ID`, `WINDOW_MS`, `THRESH`, `BLOCK_TTL_SEC`, `BAD_PATHS`, `BAD_STATUS`, `QUORUM`, `DEFAULT_TTL_SEC`, `HTTP_PORT`, `MAX_BLOCKLIST_ENTRIES`, `IOC_FLOOD_THRESHOLD`, `FAIL_MODE` (`fail-open`|`fail-closed`).
 

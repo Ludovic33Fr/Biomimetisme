@@ -6,8 +6,14 @@ import { WebSocketServer } from "ws";
 import * as fs from "fs";
 import * as path from "path";
 import { log } from "./log";
-import { createState, FailMode } from "./state";
-import { createSLO } from "./slo";
+import { createState, recomputeHealth, FENETRE_DETECTION_MS, FailMode } from "./state";
+import {
+  createSLO,
+  SLO_MTTD_MAX,
+  SLO_MTTR_MAX,
+  SLO_CONTAINMENT_MAX,
+  NODE_ISOLATION_TIMEOUT,
+} from "./slo";
 import { attachWSCommands } from "./commands";
 import { createBroadcaster, createHttpServer } from "./http-server";
 import { subscribeAll, startMetricsPublisher } from "./nats-bus";
@@ -74,41 +80,97 @@ setInterval(() => {
   }
 }, 1000);
 
+/** Arrondit une métrique, en laissant passer « non mesuré » (null). */
+function arrondi(valeur: number | null, diviseur = 1): number | null {
+  return valeur == null ? null : Math.round(valeur / diviseur);
+}
+
 // Broadcast périodique de l'état complet vers les clients WS.
+//
+// Le payload est la *seule* source de vérité de l'UI : tout ce que les
+// dashboards affichent doit venir d'ici. Pas de valeur reconstituée ni
+// inventée côté navigateur.
 setInterval(() => {
-  const nodesWithMetrics = Array.from(state.nodes.values()).map(node => ({
-    ...node,
+  const now = Date.now();
+  const activeKeys = Array.from(state.activeIOCs.keys());
+
+  // Un nœud protégé est un nœud qui a acquitté un IOC encore actif.
+  recomputeHealth(state);
+
+  // Recalcule MTTD/MTTR/containment/couverture + check violations.
+  slo.updateSLOMetrics();
+
+  const nodes = Array.from(state.nodes.values()).map(node => ({
+    id: node.id,
+    health: node.health,
+    // « Vient de détecter » : un arbre qui a levé une alerte dans la fenêtre
+    // récente. Passé ce délai il redevient un arbre protégé comme les autres,
+    // ce qui est précisément la leçon de la démo.
+    isDetector: node.lastAlertAt > 0 && now - node.lastAlertAt < FENETRE_DETECTION_MS,
+    alerts: node.alerts,
+    drops: node.drops,
     alerts_1m: node.alerts_1m || 0,
     drops_1m: node.drops_1m || 0,
-    lastSeen: node.lastSeen || Date.now(),
-    lastHeartbeat: node.lastHeartbeat || Date.now(),
+    lastSeen: node.lastSeen || now,
+    lastHeartbeat: node.lastHeartbeat || now,
     blocklistEntries: node.blocklistEntries || 0,
-    reputation: state.nodeReputation.get(node.id) || 0.5,
+    reputation: state.nodeReputation.get(node.id) ?? 0.5,
+    // Map -> tableau : une Map se sérialise en {} en JSON.
+    appliedIOCs: activeKeys.filter(key => node.iocAcks.has(key)),
   }));
 
-  // Recalcule MTTD/MTTR/containment + check violations en un appel.
-  slo.updateSLOMetrics();
+  const activeIOCs = Array.from(state.activeIOCs.entries()).map(([key, ioc]) => {
+    const voters = Array.from(state.votes.get(key) ?? []);
+    const acks = Array.from(state.nodes.values())
+      .filter(n => n.iocAcks.has(key))
+      .map(n => n.id);
+    return {
+      key,
+      kind: ioc.kind,
+      value: ioc.value,
+      reason: ioc.reason,
+      source: ioc.source,
+      confidence: ioc.confidence,
+      firstSeen: ioc.firstSeen,
+      startTime: ioc.startTime,
+      endTime: ioc.endTime,
+      ttl_sec: ioc.ttl_sec,
+      ttlRemainingSec: Math.max(0, Math.round((ioc.endTime - now) / 1000)),
+      voters,
+      voteCount: voters.length,
+      quorumRequired: state.globalQuorum,
+      acks,
+      ackCount: acks.length,
+    };
+  });
 
   broadcast({
     type: "state",
     payload: {
-      nodes: nodesWithMetrics,
-      activeIOCs: Array.from(state.activeIOCs.values()),
+      nodes,
+      activeIOCs,
+      totalNodes: state.nodes.size,
       metrics: {
-        mttd: Math.round(state.metrics.mttd),
-        mttr: Math.round(state.metrics.mttr),
-        containmentTime: Math.round(state.metrics.containmentTime / 1000),
-        containmentRatio: Math.round(state.metrics.containmentRatio),
-      },
-      sloMetrics: {
-        mttd: Math.round(state.sloMetrics.mttd),
-        mttr: Math.round(state.sloMetrics.mttr),
-        containmentTime: Math.round(state.sloMetrics.containmentTime / 1000),
+        // null traverse tel quel : l'UI affiche « — », pas « 0 ms ».
+        mttd: arrondi(state.sloMetrics.mttd),
+        mttr: arrondi(state.sloMetrics.mttr),
+        // En millisecondes comme mttd/mttr : une seule unité, un seul
+        // formateur côté UI (un confinement sub-seconde s'affichait « 0 s »).
+        containmentTime: arrondi(state.sloMetrics.containmentTime),
         containmentRatio: Math.round(state.sloMetrics.containmentRatio),
         iocRate: Math.round(state.sloMetrics.iocRate * 10) / 10,
         coverage: Math.round(state.sloMetrics.coverage),
+        coverageDetail: state.sloMetrics.coverageDetail,
         sloViolations: state.sloMetrics.sloViolations,
         consecutiveViolations: state.sloMetrics.consecutiveViolations,
+      },
+      // Seuils : l'UI les affiche au lieu de les coder en dur de son côté.
+      thresholds: {
+        mttdMaxMs: SLO_MTTD_MAX,
+        mttrMaxMs: SLO_MTTR_MAX,
+        containmentMaxMs: SLO_CONTAINMENT_MAX,
+        isolationTimeoutMs: NODE_ISOLATION_TIMEOUT,
+        iocFloodPerSec: IOC_FLOOD_THRESHOLD,
       },
       sloAlerts: state.sloAlerts.slice(0, 10),
       globalQuorum: state.globalQuorum,
@@ -117,7 +179,7 @@ setInterval(() => {
       failMode: state.failMode,
       systemVersion: SYSTEM_VERSION,
       buildTimestamp: BUILD_TIMESTAMP,
-      timestamp: Date.now(),
+      timestamp: now,
     },
   });
 }, 500);

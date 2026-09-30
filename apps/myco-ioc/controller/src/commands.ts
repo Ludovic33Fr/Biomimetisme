@@ -4,7 +4,8 @@
 import WebSocket, { WebSocketServer } from "ws";
 import { Codec, NatsConnection } from "nats";
 import { log } from "./log";
-import { AppState, defaultNode } from "./state";
+import { AppState, resetDemoState } from "./state";
+import { NODE_ISOLATION_TIMEOUT } from "./slo";
 
 export type CommandsDeps = {
   state: AppState;
@@ -76,8 +77,11 @@ export function handleTrafficControl(
 }
 
 // Démo scriptée : chorégraphie d'attaque + propagation + retour au calme.
-// Une seule démo à la fois (flag local au module).
+// Une seule démo à la fois. Les timers sont conservés pour pouvoir
+// interrompre la démo en cours (une démo de 60s qu'on ne peut pas couper
+// est ingérable en présentation).
 let demoInProgress = false;
+let demoTimers: NodeJS.Timeout[] = [];
 
 type DemoStep = {
   delayMs: number;
@@ -85,12 +89,52 @@ type DemoStep = {
   action?: (deps: CommandsDeps) => void;
 };
 
-function emitNarration(deps: CommandsDeps, step: number, total: number, message: string): void {
+function emitNarration(
+  deps: CommandsDeps,
+  step: number,
+  total: number,
+  message: string,
+  running = true,
+): void {
   deps.broadcast({
     type: "narration",
-    payload: { step, total, message, ts: Date.now() },
+    payload: { step, total, message, running, ts: Date.now() },
   });
   log.info("guided demo step", { step, total, message });
+}
+
+/**
+ * Retour à l'état zéro : plus aucune protection nulle part.
+ *
+ * Trois choses à purger, et non une seule :
+ *  1. l'état du controller (IOCs actifs, votes, mesures, alertes) ;
+ *  2. les blocklists locales des nœuds — elles vivent dans leur mémoire, via
+ *     `ioc.flush` ; sans ça les arbres continuent de bloquer et la démo
+ *     suivante démarre déjà protégée ;
+ *  3. le trafic, arrêté, pour que rien ne redétecte dans la seconde.
+ */
+export function resetDemo(deps: CommandsDeps): void {
+  stopGuidedDemo(deps);
+  resetDemoState(deps.state, NODE_ISOLATION_TIMEOUT);
+
+  publish(deps, "ioc.flush", { reason: "reset", ts: Date.now() });
+  publish(deps, "traffic.control", { action: "stop", timestamp: Date.now() });
+
+  deps.broadcast({
+    type: "event",
+    payload: { kind: "reset", ts: Date.now(), reason: "Remise à zéro demandée depuis le dashboard" },
+  });
+  log.info("demo reset - all protections cleared");
+}
+
+export function stopGuidedDemo(deps: CommandsDeps): void {
+  if (!demoInProgress) return;
+  for (const t of demoTimers) clearTimeout(t);
+  demoTimers = [];
+  demoInProgress = false;
+  publish(deps, "traffic.control", { action: "stop", timestamp: Date.now() });
+  emitNarration(deps, 0, 0, "Démo interrompue. Le trafic est arrêté.", false);
+  log.info("guided demo stopped");
 }
 
 function pickAttackTargets(deps: CommandsDeps, n: number): string[] {
@@ -164,15 +208,16 @@ export function runGuidedDemo(deps: CommandsDeps): void {
     },
   ];
 
-  steps.forEach((step, i) => {
+  demoTimers = steps.map((step, i) =>
     setTimeout(() => {
-      emitNarration(deps, i + 1, steps.length, step.message);
+      emitNarration(deps, i + 1, steps.length, step.message, i < steps.length - 1);
       if (step.action) step.action(deps);
       if (i === steps.length - 1) {
         demoInProgress = false;
+        demoTimers = [];
       }
-    }, step.delayMs);
-  });
+    }, step.delayMs),
+  );
 }
 
 function handleWSMessage(deps: CommandsDeps, raw: string): void {
@@ -217,7 +262,11 @@ function handleWSMessage(deps: CommandsDeps, raw: string): void {
     }
 
     case "simulateFalsePositive": {
-      const fpNodeId = data.nodeId || "node-1";
+      const fpNodeId = data.nodeId || Array.from(state.nodes.keys())[0];
+      if (!fpNodeId) {
+        log.warn("FP simulation aborted - no node available");
+        break;
+      }
       const fpIOC = {
         kind: "ip" as const,
         value: "192.168.1.100",
@@ -254,14 +303,24 @@ function handleWSMessage(deps: CommandsDeps, raw: string): void {
     }
 
     case "simulateNodeIsolation": {
-      const isolatedNodeId = "node-isolated";
-      const node = state.nodes.get(isolatedNodeId) || defaultNode(isolatedNodeId, Date.now());
-      // On force lastHeartbeat à 20s dans le passé pour que la prochaine
-      // boucle SLO marque le node comme isolé.
+      // On isole un nœud *réel* : inventer un « node-isolated » fantôme
+      // polluait la topologie avec un arbre qui n'existe pas.
+      const isolatedNodeId = (data.nodeId && state.nodes.has(data.nodeId))
+        ? data.nodeId
+        : Array.from(state.nodes.keys())[0];
+      const node = isolatedNodeId ? state.nodes.get(isolatedNodeId) : undefined;
+      if (!node) {
+        log.warn("isolation simulation aborted - no node available");
+        break;
+      }
+      // lastHeartbeat forcé dans le passé : la prochaine boucle SLO marque
+      // le nœud comme isolé, puis le heartbeat réel le fera revenir.
       node.lastHeartbeat = Date.now() - 20_000;
       node.health = "isolated";
-      state.nodes.set(isolatedNodeId, node);
-      broadcast({ type: "event", payload: { kind: "node_isolated", nodeId: isolatedNodeId, reason: "Simulation isolation" } });
+      broadcast({
+        type: "event",
+        payload: { kind: "node_isolated", nodeId: isolatedNodeId, reason: "Simulation d'isolation", ts: Date.now() },
+      });
       log.info("node isolation simulation triggered", { node_id: isolatedNodeId });
       break;
     }
@@ -277,6 +336,14 @@ function handleWSMessage(deps: CommandsDeps, raw: string): void {
 
     case "runGuidedDemo":
       runGuidedDemo(deps);
+      break;
+
+    case "stopGuidedDemo":
+      stopGuidedDemo(deps);
+      break;
+
+    case "resetDemo":
+      resetDemo(deps);
       break;
   }
 }

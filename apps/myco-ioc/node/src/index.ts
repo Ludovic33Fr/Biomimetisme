@@ -19,6 +19,9 @@ type AlertMsg = {
   count_5s: number;
   confidence: number;
   ts: number;
+  // Début réel du burst dans la fenêtre glissante. Le controller en a besoin
+  // pour calculer un MTTD mesuré : sans lui, il ne peut que l'inventer.
+  firstEventTs: number;
 };
 
 type IOCMsg = {
@@ -36,6 +39,10 @@ type DropMsg = {
   ts: number;
   ip: string;
   reason: string;
+  // Clé de l'IOC qui a provoqué le blocage. Sans elle, le controller ne peut
+  // rattacher aucun blocage à un partage, et le temps de confinement reste
+  // une métrique qui ne se remplit jamais.
+  iocKey: string;
 };
 
 const NODE_ID = process.env.NODE_ID || os.hostname();
@@ -181,6 +188,18 @@ async function main() {
     },
   });
 
+  // Remise à zéro demandée par le controller : on lève toutes les protections
+  // locales. La fenêtre de détection est vidée elle aussi, sinon un burst
+  // entamé avant le reset déclencherait une alerte juste après.
+  const subFlush: Subscription = nc.subscribe("ioc.flush", {
+    callback: () => {
+      const levees = blocklistIP.size;
+      blocklistIP.clear();
+      byIP.clear();
+      log.warn("blocklist flushed - no protection left", { node_id: NODE_ID, entries_cleared: levees });
+    },
+  });
+
   const subTraffic: Subscription = nc.subscribe("traffic.http", {
     callback: (_err, m) => {
       try {
@@ -190,7 +209,13 @@ async function main() {
         const eventTs = ev.ts || now();
 
         if (isBlocked(ev.src_ip)) {
-          pubDrop(nc, { nodeId: NODE_ID, ts: eventTs, ip: ev.src_ip, reason: "ioc-block" });
+          pubDrop(nc, {
+            nodeId: NODE_ID,
+            ts: eventTs,
+            ip: ev.src_ip,
+            reason: "ioc-block",
+            iocKey: `ip|${ev.src_ip}`,
+          });
           return;
         }
 
@@ -205,6 +230,11 @@ async function main() {
         if (count >= THRESH && (badPathFlag || badStatusFlag)) {
           const confidence = computeConfidence(count, badPathFlag, badStatusFlag);
 
+          // purgeOld a remplacé le tableau : `arr` peut encore contenir des
+          // horodatages sortis de la fenêtre. On relit la fenêtre courante.
+          const fenetre = byIP.get(ev.src_ip) || [];
+          const premierEvenement = fenetre.length ? fenetre[0] : eventTs;
+
           const alert: AlertMsg = {
             nodeId: NODE_ID,
             rule: "login-burst",
@@ -212,6 +242,7 @@ async function main() {
             count_5s: count,
             confidence,
             ts: now(),
+            firstEventTs: premierEvenement,
           };
           pubAlert(nc, alert);
 
@@ -222,7 +253,7 @@ async function main() {
             source: NODE_ID,
             confidence,
             ttl_sec: BLOCK_TTL_SEC,
-            firstSeen: arr.length ? arr[0] : eventTs,
+            firstSeen: premierEvenement,
           };
           pubIOCLocal(nc, ioc);
           applyIPBlock(ioc.value, ioc.ttl_sec);
@@ -240,6 +271,7 @@ async function main() {
     try {
       subTraffic.unsubscribe();
       subIOCShare.unsubscribe();
+      subFlush.unsubscribe();
       await nc.drain();
     } catch (e) {
       log.error("error on shutdown", { node_id: NODE_ID, err: e });

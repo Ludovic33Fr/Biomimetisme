@@ -9,12 +9,21 @@ import {
   calculateMTTR,
   calculateContainmentTime,
   calculateContainmentRatio,
+  calculateCoverage,
 } from "./state";
 
 export const SLO_MTTD_MAX = 2000; // ms
 export const SLO_MTTR_MAX = 3000; // ms
 export const SLO_CONTAINMENT_MAX = 10_000; // ms
 export const NODE_ISOLATION_TIMEOUT = 15_000; // ms
+/**
+ * Au-delà, on considère que le nœud n'existe plus (conteneur arrêté, scale
+ * down) et on le retire de l'état. Sans ça, un `--scale node=2` laissait
+ * indéfiniment des arbres fantômes « coupés du mycélium » à l'écran.
+ * Largement au-dessus du seuil d'isolation pour ne pas évincer un nœud qui
+ * redémarre.
+ */
+export const NODE_EVICTION_TIMEOUT = 120_000; // ms
 
 export type Broadcast = (msg: any) => void;
 
@@ -44,8 +53,8 @@ export function createSLO(state: AppState, broadcast: Broadcast, opts: SLOOpts) 
     const now = Date.now();
     const m = state.sloMetrics;
 
-    // MTTD
-    if (m.mttd > SLO_MTTD_MAX) {
+    // MTTD — une métrique non mesurée ne peut violer aucun SLO.
+    if (m.mttd != null && m.mttd > SLO_MTTD_MAX) {
       m.sloViolations.mttd++;
       m.consecutiveViolations.mttd++;
       if (m.consecutiveViolations.mttd >= 3) {
@@ -63,7 +72,7 @@ export function createSLO(state: AppState, broadcast: Broadcast, opts: SLOOpts) 
     }
 
     // MTTR
-    if (m.mttr > SLO_MTTR_MAX) {
+    if (m.mttr != null && m.mttr > SLO_MTTR_MAX) {
       m.sloViolations.mttr++;
       m.consecutiveViolations.mttr++;
       if (m.consecutiveViolations.mttr >= 3) {
@@ -81,7 +90,7 @@ export function createSLO(state: AppState, broadcast: Broadcast, opts: SLOOpts) 
     }
 
     // Containment
-    if (m.containmentTime > SLO_CONTAINMENT_MAX) {
+    if (m.containmentTime != null && m.containmentTime > SLO_CONTAINMENT_MAX) {
       m.sloViolations.containment++;
       m.consecutiveViolations.containment++;
       if (m.consecutiveViolations.containment >= 3) {
@@ -103,6 +112,18 @@ export function createSLO(state: AppState, broadcast: Broadcast, opts: SLOOpts) 
     const now = Date.now();
     for (const [nodeId, node] of state.nodes) {
       const since = now - node.lastHeartbeat;
+
+      // Silence prolongé : le nœud a disparu pour de bon, on le retire.
+      if (since > NODE_EVICTION_TIMEOUT) {
+        state.nodes.delete(nodeId);
+        broadcast({
+          type: "event",
+          payload: { kind: "node_gone", nodeId, ts: now, silenceSec: Math.round(since / 1000) },
+        });
+        log.info("node removed after prolonged silence", { node_id: nodeId, silence_sec: Math.round(since / 1000) });
+        continue;
+      }
+
       if (since > NODE_ISOLATION_TIMEOUT) {
         if (node.health !== "isolated") {
           node.health = "isolated";
@@ -194,9 +215,15 @@ export function createSLO(state: AppState, broadcast: Broadcast, opts: SLOOpts) 
     state.sloMetrics.containmentTime = state.metrics.containmentTime;
     state.sloMetrics.containmentRatio = state.metrics.containmentRatio;
 
-    const nodesWithIOC = Array.from(state.nodes.values()).filter(n => n.alerts > 0).length;
-    state.sloMetrics.coverage =
-      state.nodes.size > 0 ? (nodesWithIOC / state.nodes.size) * 100 : 0;
+    // Couverture = part des nœuds qui appliquent tous les IOCs actifs.
+    // (Avant : part des nœuds *attaqués*, c'est-à-dire l'inverse du sens voulu.)
+    const cov = calculateCoverage(state);
+    state.sloMetrics.coverage = cov.coverage;
+    state.sloMetrics.coverageDetail = {
+      protectedNodes: cov.protectedNodes,
+      totalNodes: cov.totalNodes,
+      activeIOCs: cov.activeIOCs,
+    };
 
     checkSLOViolations();
   }

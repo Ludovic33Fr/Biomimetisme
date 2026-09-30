@@ -44,7 +44,8 @@ function serveStatic(filePath: string, res: http.ServerResponse, contentType = "
       res.end("File not found");
       return;
     }
-    res.writeHead(200, { "Content-Type": contentType });
+    // charset explicite : les libellés de l'UI sont en français accentué.
+    res.writeHead(200, { "Content-Type": `${contentType}; charset=utf-8` });
     res.end(data);
   });
 }
@@ -63,8 +64,12 @@ export function createHttpServer(opts: HttpServerOpts): http.Server {
       serveStatic(path.join(publicDir, "visual.html"), res);
       return;
     }
-    if (url === "/test-timeline") {
-      serveStatic(path.join(publicDir, "test-timeline.html"), res);
+    // Assets partagés par les deux dashboards.
+    // path.basename coupe toute tentative de traversée ("../../etc/passwd").
+    const asset = /^\/shared\/([A-Za-z0-9._-]+\.(css|js))$/.exec(url.split("?")[0]);
+    if (asset) {
+      const contentType = asset[2] === "css" ? "text/css" : "text/javascript";
+      serveStatic(path.join(publicDir, "shared", path.basename(asset[1])), res, contentType);
       return;
     }
     if (url === "/api/state") {

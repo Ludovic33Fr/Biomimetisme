@@ -1,0 +1,991 @@
+/* ==========================================================================
+   Myco-IOC — socle visuel partagé par les deux dashboards.
+
+   Scène d'usage : un écran projeté en salle sombre (conférence, démo) et un
+   second écran d'opérateur. D'où la surface sombre : les propagations d'IOC
+   doivent se lire de loin, et un fond clair les écrase.
+
+   Un seul jeu de couleurs. Chaque état du mycélium a un jeton et un seul.
+   ========================================================================== */
+
+:root {
+  /* Surfaces — sous-bois */
+  --fond:            #0d1410;
+  --surface:         #141d17;
+  --surface-haute:   #1b2720;
+  --ligne:           #24322a;
+  --ligne-forte:     #35483c;
+
+  /* Texte (tous ≥ 4.5:1 sur --surface) */
+  --texte:           #e8f0ea;
+  --texte-doux:      #a3b5a9;
+  --texte-inverse:   #0d1410;
+
+  /* États du mycélium — un jeton par état, utilisé partout à l'identique */
+  --sain:            #5fd08a;  /* arbre sain                      */
+  --protege:         #63c2f5;  /* arbre vacciné par le réseau     */
+  --attaque:         #ff6b57;  /* arbre attaqué / détecteur       */
+  --isole:           #8b9a90;  /* arbre coupé du mycélium (4,9:1 sur son fond) */
+  --signal:          #f2c14e;  /* l'IOC qui voyage dans le thalle */
+
+  /* Teintes sourdes pour les fonds d'état (texte accent par-dessus) */
+  --sain-fond:       #12291d;
+  --protege-fond:    #10262f;
+  --attaque-fond:    #2e1713;
+  --isole-fond:      #1d2420;
+  --signal-fond:     #2b2412;
+
+  /* Typographie */
+  --police: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+            "Helvetica Neue", Arial, sans-serif;
+  /* Monospace réservée aux données mesurées : IP, compteurs, chronos. */
+  --police-donnee: ui-monospace, "Cascadia Code", "SF Mono", Consolas,
+                   "Liberation Mono", monospace;
+
+  --rayon:      12px;
+  --rayon-petit: 8px;
+  --pilule:     999px;
+
+  /* Élévation : ombre OU bordure, jamais les deux sur le même élément. */
+  --ombre: 0 8px 24px rgba(0, 0, 0, 0.45);
+
+  --transition: 180ms cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--fond);
+  color: var(--texte);
+  font-family: var(--police);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- Surfaces du navigateur : elles font partie du design ---------------- */
+
+::selection {
+  background: var(--signal);
+  color: var(--texte-inverse);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ligne-forte) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ligne-forte);
+  border-radius: var(--pilule);
+  border: 2px solid var(--fond);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--isole);
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+a {
+  color: var(--protege);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* Le jargon du domaine est expliqué là où il apparaît. */
+abbr[title] {
+  text-decoration: underline dotted currentColor;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+/* --- Typographie -------------------------------------------------------- */
+
+h1, h2, h3 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+h1 { font-size: 1.05rem; }
+h2 { font-size: 1.15rem; }
+h3 { font-size: 0.95rem; }
+
+.donnee {
+  font-family: var(--police-donnee);
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Barre d'en-tête ---------------------------------------------------- */
+
+.barre {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1.25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--ligne);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+/* Sur écran étroit la barre se replie sur plusieurs rangées : collée en haut
+   elle occuperait un tiers de la hauteur en permanence. */
+@media (max-width: 760px) {
+  .barre {
+    position: static;
+  }
+}
+
+.marque {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  white-space: nowrap;
+}
+
+.marque svg {
+  color: var(--sain);
+  flex: none;
+}
+
+.onglets {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  background: var(--fond);
+  border-radius: var(--pilule);
+}
+
+.onglet {
+  padding: 0.35rem 0.9rem;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--pilule);
+  color: var(--texte-doux);
+  text-decoration: none;
+  font-size: 0.875rem;
+  transition: background var(--transition), color var(--transition);
+}
+
+.onglet:hover {
+  color: var(--texte);
+  background: var(--surface-haute);
+}
+
+.onglet[aria-current="page"] {
+  background: var(--surface-haute);
+  color: var(--texte);
+}
+
+.meta {
+  font-size: 0.8125rem;
+  color: var(--texte-doux);
+  white-space: nowrap;
+}
+
+/* --- Boutons ------------------------------------------------------------
+   Jamais de texte blanc sur fond saturé : soit texte sombre sur accent vif,
+   soit texte accent sur fond teinté sombre. Les deux passent AA.           */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--ligne-forte);
+  border-radius: var(--rayon-petit);
+  background: var(--surface-haute);
+  color: var(--texte);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition),
+              color var(--transition), opacity var(--transition);
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--isole);
+  background: var(--ligne);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn[aria-pressed="true"] {
+  background: var(--ligne);
+  border-color: var(--texte-doux);
+  color: var(--texte);
+}
+
+/* Action primaire : la porte d'entrée de la démo. Une seule par écran. */
+.btn-primaire {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: var(--texte-inverse);
+  font-weight: 600;
+}
+
+.btn-primaire:hover:not(:disabled) {
+  background: #ffd166;
+  border-color: #ffd166;
+}
+
+.btn-danger {
+  background: var(--attaque-fond);
+  border-color: #5a2b23;
+  color: var(--attaque);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #3b1d18;
+  border-color: var(--attaque);
+}
+
+.btn-petit {
+  min-height: 40px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8125rem;
+}
+
+/* Au doigt, toute cible atteint 44px — y compris les contrôles denses. */
+@media (pointer: coarse) {
+  .btn,
+  .btn-petit,
+  .champ,
+  .onglet {
+    min-height: 44px;
+  }
+}
+
+.btn svg {
+  flex: none;
+}
+
+/* --- Champs ------------------------------------------------------------- */
+
+.champ {
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--ligne-forte);
+  border-radius: var(--rayon-petit);
+  background: var(--surface-haute);
+  color: var(--texte);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+label {
+  font-size: 0.875rem;
+  color: var(--texte-doux);
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  /* La piste ne fait que 6px, mais la zone cliquable en fait 44. */
+  height: 44px;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: var(--pilule);
+  background: var(--ligne-forte);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: var(--pilule);
+  background: var(--ligne-forte);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -8px;
+  border-radius: 50%;
+  background: var(--signal);
+  border: 2px solid var(--fond);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--signal);
+  border: 2px solid var(--fond);
+}
+
+/* --- Panneaux ----------------------------------------------------------- */
+
+.panneau {
+  background: var(--surface);
+  border: 1px solid var(--ligne);
+  border-radius: var(--rayon);
+  padding: 1.25rem;
+}
+
+.panneau > h2,
+.panneau > h3 {
+  margin-bottom: 0.85rem;
+}
+
+.panneau-titre {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.panneau-titre .meta {
+  font-size: 0.8125rem;
+}
+
+.vide {
+  color: var(--texte-doux);
+  font-size: 0.9rem;
+  padding: 1rem 0;
+  text-align: center;
+}
+
+/* --- État de connexion -------------------------------------------------- */
+
+.connexion {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--pilule);
+  font-size: 0.8125rem;
+  background: var(--sain-fond);
+  color: var(--sain);
+  white-space: nowrap;
+}
+
+.connexion[data-etat="closed"],
+.connexion[data-etat="connecting"] {
+  background: var(--attaque-fond);
+  color: var(--attaque);
+}
+
+.pastille {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+/* --- Badges d'état ------------------------------------------------------ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: var(--pilule);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.badge[data-etat="ok"]        { background: var(--sain-fond);    color: var(--sain); }
+.badge[data-etat="protected"] { background: var(--protege-fond); color: var(--protege); }
+.badge[data-etat="detector"]  { background: var(--attaque-fond); color: var(--attaque); }
+.badge[data-etat="isolated"]  { background: var(--isole-fond);   color: var(--isole); }
+.badge[data-etat="signal"]    { background: var(--signal-fond);  color: var(--signal); }
+
+/* --- Légende ------------------------------------------------------------ */
+
+.legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+  padding: 0.75rem 0 0;
+  font-size: 0.875rem;
+  color: var(--texte-doux);
+}
+
+.legende li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.legende ul {
+  display: contents;
+}
+
+.puce {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.puce[data-etat="ok"]        { background: var(--sain); }
+.puce[data-etat="protected"] { background: var(--protege); }
+.puce[data-etat="detector"]  { background: var(--attaque); }
+.puce[data-etat="isolated"]  { background: var(--isole); }
+.puce[data-etat="signal"]    { background: var(--signal); }
+
+/* --- Tableaux ----------------------------------------------------------- */
+
+.tableau-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+table.tableau {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.tableau th,
+.tableau td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--ligne);
+  vertical-align: middle;
+}
+
+.tableau th {
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: var(--texte-doux);
+  white-space: nowrap;
+}
+
+.tableau tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tableau tbody tr:hover {
+  background: var(--surface-haute);
+}
+
+/* Une mesure ne se coupe jamais en deux lignes : « 1 / 1 » doit rester
+   « 1 / 1 ». Le tableau déborde horizontalement dans .tableau-scroll. */
+.tableau td.donnee,
+.tableau td:first-child {
+  white-space: nowrap;
+}
+
+.actions-cellule {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: nowrap;
+}
+
+/* --- Bande de narration (démo guidée) ----------------------------------- */
+
+.narration {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  width: min(860px, calc(100vw - 32px));
+  transform: translateX(-50%) translateY(140%);
+  opacity: 0;
+  background: var(--surface-haute);
+  border: 1px solid var(--ligne-forte);
+  border-radius: var(--rayon);
+  box-shadow: var(--ombre);
+  padding: 0.9rem 1.15rem;
+  z-index: 100;
+  transition: transform 320ms cubic-bezier(0.22, 0.8, 0.3, 1), opacity 320ms;
+}
+
+.narration.visible {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.narration-entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.8125rem;
+  color: var(--texte-doux);
+  margin-bottom: 0.3rem;
+}
+
+.narration-message {
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.narration-jauge {
+  height: 3px;
+  margin-top: 0.7rem;
+  background: var(--ligne);
+  border-radius: var(--pilule);
+  overflow: hidden;
+}
+
+/* Progression en scaleX plutôt qu'en width : animer une largeur force un
+   recalcul de mise en page à chaque image. */
+.narration-jauge > span {
+  display: block;
+  height: 100%;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: var(--signal);
+  transition: transform 400ms ease-out;
+}
+
+/* --- Gabarit de page ---------------------------------------------------- */
+
+.contenu {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 1.25rem;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.scene {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.scene .panneau {
+  padding: 1rem 1rem 0.75rem;
+}
+
+.grille-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.colonne {
+  display: grid;
+  gap: 1.25rem;
+}
+
+/* Un élément de grille a min-width:auto par défaut : il refuse de se
+   rétrécir sous la largeur de son contenu, et un tableau large fait alors
+   déborder toute la page au lieu de défiler dans son propre conteneur. */
+.contenu > *,
+.grille-2 > *,
+.colonne > * {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .grille-2 { grid-template-columns: 1fr; }
+}
+
+/* --- Groupe de contrôles étiqueté --------------------------------------- */
+
+.groupe {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--ligne);
+  border-radius: var(--rayon-petit);
+}
+
+.groupe-titre {
+  font-size: 0.8125rem;
+  color: var(--texte-doux);
+  margin-right: 0.15rem;
+  white-space: nowrap;
+}
+
+.pupitre {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* --- Récit : les quatre temps de la propagation -------------------------- */
+
+.recit {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--ligne);
+  border-radius: var(--rayon);
+  overflow: hidden;
+}
+
+.recit-etape {
+  padding: 0.85rem 1rem;
+  border-right: 1px solid var(--ligne);
+  background: var(--surface);
+}
+
+.recit-etape:last-child { border-right: none; }
+
+.recit-etape[data-actif="oui"] {
+  background: var(--surface-haute);
+}
+
+.recit-rang {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--texte-doux);
+}
+
+.recit-valeur {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+  font-family: var(--police-donnee);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.recit-detail {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--texte-doux);
+  margin-top: 0.15rem;
+}
+
+@media (max-width: 760px) {
+  .recit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .recit-etape:nth-child(2) { border-right: none; }
+  .recit-etape:nth-child(-n + 2) { border-bottom: 1px solid var(--ligne); }
+}
+
+/* --- Bande de mesures (vue opérateur) ----------------------------------- */
+
+.mesures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1px;
+  background: var(--ligne);
+  border: 1px solid var(--ligne);
+  border-radius: var(--rayon);
+  overflow: hidden;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mesure {
+  background: var(--surface);
+  padding: 0.85rem 1rem;
+}
+
+.mesure-libelle {
+  font-size: 0.8125rem;
+  color: var(--texte-doux);
+}
+
+.mesure-valeur {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-family: var(--police-donnee);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.mesure[data-etat="neutre"]  .mesure-valeur { color: var(--texte-doux); }
+.mesure[data-etat="depasse"] .mesure-valeur { color: var(--attaque); }
+.mesure[data-etat="limite"]  .mesure-valeur { color: var(--signal); }
+.mesure[data-etat="tenu"]    .mesure-valeur { color: var(--sain); }
+
+.mesure-seuil {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--texte-doux);
+  margin-top: 0.15rem;
+}
+
+/* --- Flux d'événements -------------------------------------------------- */
+
+.flux {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 340px;
+  overflow-y: auto;
+  overflow-anchor: none;
+}
+
+.evenement {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.45rem 0.25rem;
+  border-bottom: 1px solid var(--ligne);
+  font-size: 0.9rem;
+}
+
+.evenement:last-child { border-bottom: none; }
+
+.evenement-icone {
+  display: inline-flex;
+  align-self: center;
+  color: var(--texte-doux);
+}
+
+.evenement[data-ton="attaque"] .evenement-icone { color: var(--attaque); }
+.evenement[data-ton="protege"] .evenement-icone { color: var(--protege); }
+.evenement[data-ton="signal"]  .evenement-icone { color: var(--signal); }
+.evenement[data-ton="ok"]      .evenement-icone { color: var(--sain); }
+.evenement[data-ton="isole"]   .evenement-icone { color: var(--isole); }
+
+.evenement-heure {
+  font-size: 0.8125rem;
+  color: var(--texte-doux);
+}
+
+/* --- Alertes SLO -------------------------------------------------------- */
+
+.alertes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.alerte {
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--rayon-petit);
+  margin-bottom: 0.4rem;
+  font-size: 0.875rem;
+  background: var(--signal-fond);
+  color: var(--signal);
+}
+
+.alerte[data-severite="critical"] {
+  background: var(--attaque-fond);
+  color: var(--attaque);
+}
+
+.alerte time {
+  display: block;
+  font-size: 0.8125rem;
+  opacity: 0.85;
+  margin-top: 0.15rem;
+}
+
+/* --- Filtres ------------------------------------------------------------ */
+
+.filtres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+/* --- Topologie mycélienne ----------------------------------------------- */
+
+/* Hauteur bornée : le dessin doit tenir dans le premier écran avec le
+   pupitre au-dessus et le récit juste en dessous. */
+.mycelium {
+  display: block;
+  width: 100%;
+  height: clamp(300px, 56vh, 540px);
+}
+
+/* Vue opérateur : la topologie est un repère, pas le sujet. Le dessin étant
+   fortement réduit, le texte est agrandi en unités de viewBox pour rester
+   lisible une fois la mise à l'échelle appliquée. */
+.mycelium-compact {
+  height: clamp(240px, 32vh, 300px);
+}
+
+.mycelium-compact .myc-label        { font-size: 30px; }
+.mycelium-compact .myc-thalle-texte { font-size: 26px; }
+
+.myc-thalle-halo {
+  fill: var(--sain);
+  opacity: 0.06;
+}
+
+.myc-thalle-corps {
+  fill: var(--surface-haute);
+  stroke: var(--ligne-forte);
+  stroke-width: 1.5;
+}
+
+.myc-thalle-texte {
+  fill: var(--texte-doux);
+  font-family: var(--police);
+  font-size: 16px;
+  letter-spacing: 0.08em;
+}
+
+.myc-vide {
+  fill: var(--texte-doux);
+  font-family: var(--police);
+  font-size: 19px;
+}
+
+.myc-hyphe {
+  fill: none;
+  stroke: var(--ligne-forte);
+  stroke-width: 2;
+  transition: stroke var(--transition), stroke-width var(--transition);
+}
+
+.myc-hyphe[data-etat="protected"] { stroke: #2b4d5c; }
+.myc-hyphe[data-etat="isolated"]  { stroke-dasharray: 4 9; opacity: 0.45; }
+
+.myc-hyphe.actif {
+  stroke: var(--signal);
+  stroke-width: 4;
+}
+
+.myc-disque {
+  fill: var(--sain);
+  transition: fill var(--transition);
+}
+
+.myc-noeud[data-etat="protected"] .myc-disque { fill: var(--protege); }
+.myc-noeud[data-etat="isolated"]  .myc-disque { fill: var(--isole); }
+.myc-noeud[data-detecteur="oui"]  .myc-disque { fill: var(--attaque); }
+
+.myc-detecteur {
+  fill: none;
+  stroke: var(--attaque);
+  stroke-width: 2;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.myc-noeud[data-detecteur="oui"] .myc-detecteur { opacity: 1; }
+
+/* Arc de TTL : ce qu'il reste de la protection, pas un anneau décoratif. */
+.myc-ttl {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 4;
+  stroke-linecap: round;
+  opacity: 0;
+  transform: rotate(-90deg);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: stroke-dasharray 500ms linear, opacity var(--transition);
+}
+
+.myc-label {
+  fill: var(--texte);
+  font-family: var(--police);
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.myc-impulsion {
+  fill: none;
+  stroke: var(--protege);
+  stroke-width: 3;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.myc-impulsion.bat {
+  animation: myc-bat 720ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes myc-bat {
+  from { opacity: 0.9; transform: scale(1); }
+  to   { opacity: 0;   transform: scale(2); }
+}
+
+.myc-spore {
+  fill: var(--signal);
+  filter: drop-shadow(0 0 7px rgba(242, 193, 78, 0.85));
+}
+
+/* Le SVG se réduit avec son conteneur : on grossit le texte en unités de
+   viewBox pour qu'il reste lisible une fois la mise à l'échelle appliquée. */
+@media (max-width: 760px) {
+  /* Sur un écran étroit, le dessin est contraint par la largeur : on colle
+     la hauteur au ratio du viewBox plutôt que de laisser 300px de vide. */
+  .mycelium {
+    height: auto;
+    aspect-ratio: 1200 / 560;
+  }
+
+  .myc-label        { font-size: 26px; }
+  .myc-thalle-texte { font-size: 24px; }
+  .myc-vide         { font-size: 28px; }
+}
+
+/* --- Accessibilité : respecter la demande de mouvement réduit ----------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
